@@ -7,6 +7,14 @@ from nengo.exceptions import ValidationError
 from nengo.neurons import NeuronType
 from nengo.params import NumberParam
 
+try:
+    import nengo_dl
+    import nengo_dl.neuron_builders
+    import tensorflow as tf
+except ImportError:
+    nengo_dl = None
+    tf = None
+
 
 def loihi_lif_rates(neuron_type, x, gain, bias, dt):
     # discretize tau_ref as per CxGroup.configure_lif
@@ -225,3 +233,170 @@ def nengo_build_nif_rate(model, nif_rate, neurons):
 @nengo.builder.Builder.register(NIF)
 def nengo_build_nif(model, nif, neurons):
     return nengo.builder.neurons.build_lif(model, nif, neurons)
+
+
+if nengo_dl is not None:  # noqa: C901
+    class LoihiLIFBuilder(nengo_dl.neuron_builders.LIFBuilder):
+        def _rate_step(self, J, dt):
+            tau_ref = dt * tf.round(self.tau_ref / dt)
+            tau_ref1 = tau_ref + 0.5*dt
+            # ^ Since LoihiLIF takes `ceil(period/dt)` the firing rate is
+            # always below the LIF rate. Using `tau_ref1` in LIF curve makes
+            # it the average of the LoihiLIF curve (rather than upper bound).
+
+            J -= self.one
+
+            # --- compute Loihi rates (for forward pass)
+            period = tau_ref + self.tau_rc*tf.log1p(tf.reciprocal(
+                tf.maximum(J, self.epsilon)))
+            loihi_rates = (self.amplitude / dt) / tf.ceil(period / dt)
+            loihi_rates = tf.where(J > self.zero, loihi_rates, self.zeros)
+
+            # --- compute LIF rates (for backward pass)
+            if self.config.lif_smoothing:
+                js = J / self.sigma
+                j_valid = js > -20
+                js_safe = tf.where(j_valid, js, self.zeros)
+
+                # softplus(js) = log(1 + e^js)
+                z = tf.nn.softplus(js_safe) * self.sigma
+
+                # as z->0
+                #   z = s*log(1 + e^js) = s*e^js
+                #   log(1 + 1/z) = log(1/z) = -log(s*e^js) = -js - log(s)
+                q = tf.where(j_valid,
+                             tf.log1p(tf.reciprocal(z)),
+                             -js - tf.log(self.sigma))
+
+                rates = self.amplitude / (tau_ref1 + self.tau_rc * q)
+            else:
+                rates = self.amplitude / (
+                    tau_ref1 + self.tau_rc*tf.log1p(tf.reciprocal(
+                        tf.maximum(J, self.epsilon))))
+                rates = tf.where(J > self.zero, rates, self.zeros)
+
+            # rates + stop_gradient(loihi_rates - rates) =
+            #     loihi_rates on forward pass, rates on backwards
+            return rates + tf.stop_gradient(loihi_rates - rates)
+
+        def _step(self, J, voltage, refractory, dt):
+            tau_ref = dt * tf.round(self.tau_ref / dt)
+
+            delta_t = tf.clip_by_value(dt - refractory, self.zero, dt)
+            voltage -= (J - voltage) * tf.expm1(-delta_t / self.tau_rc)
+
+            spiked = voltage > self.one
+            spikes = tf.cast(spiked, J.dtype) * self.alpha
+
+            # refractory = tf.where(spiked, tau_ref, refractory - dt)
+            refractory = tf.where(spiked,
+                                  tau_ref + tf.zeros_like(refractory),
+                                  refractory - dt)
+            voltage = tf.where(spiked, self.zeros,
+                               tf.maximum(voltage, self.min_voltage))
+
+            # we use stop_gradient to avoid propagating any nans (those get
+            # propagated through the cond even if the spiking version isn't
+            # being used at all)
+            return (tf.stop_gradient(spikes), tf.stop_gradient(voltage),
+                    tf.stop_gradient(refractory))
+
+        def build_step(self, signals):
+            J = signals.gather(self.J_data)
+            voltage = signals.gather(self.voltage_data)
+            refractory = signals.gather(self.refractory_data)
+
+            spike_out, spike_voltage, spike_ref = self._step(
+                J, voltage, refractory, signals.dt)
+
+            if self.config.inference_only:
+                spikes, voltage, refractory = (
+                    spike_out, spike_voltage, spike_ref)
+            else:
+                rate_out = self._rate_step(J, signals.dt)
+
+                spikes, voltage, refractory = tf.cond(
+                    signals.training,
+                    lambda: (rate_out, voltage, refractory),
+                    lambda: (spike_out, spike_voltage, spike_ref)
+                )
+
+            signals.scatter(self.output_data, spikes)
+            signals.mark_gather(self.J_data)
+            signals.scatter(self.refractory_data, refractory)
+            signals.scatter(self.voltage_data, voltage)
+
+    class LoihiSpikingRectifiedLinearBuilder(
+            nengo_dl.neuron_builders.SpikingRectifiedLinearBuilder):
+        def __init__(self, ops, signals, config):
+            super(LoihiSpikingRectifiedLinearBuilder, self).__init__(
+                ops, signals, config)
+
+            self.amplitude = signals.op_constant(
+                [op.neurons for op in ops], [op.J.shape[0] for op in ops],
+                "amplitude", signals.dtype)
+
+            self.zeros = tf.zeros(
+                self.J_data.shape + (signals.minibatch_size,),
+                signals.dtype)
+
+            self.epsilon = tf.constant(1e-15, dtype=signals.dtype)
+
+            # copy these so that they're easily accessible in _step functions
+            self.zero = signals.zero
+            self.one = signals.one
+
+        def _rate_step(self, J, dt):
+            tau_ref1 = 0.5*dt
+            # ^ Since LoihiLIF takes `ceil(period/dt)` the firing rate is
+            # always below the LIF rate. Using `tau_ref1` in LIF curve makes
+            # it the average of the LoihiLIF curve (rather than upper bound).
+
+            # --- compute Loihi rates (for forward pass)
+            period = tf.reciprocal(tf.maximum(J, self.epsilon))
+            loihi_rates = self.alpha / tf.ceil(period / dt)
+            loihi_rates = tf.where(J > self.zero, loihi_rates, self.zeros)
+
+            # --- compute RectifiedLinear rates (for backward pass)
+            rates = self.amplitude / (
+                tau_ref1 + tf.reciprocal(tf.maximum(J, self.epsilon)))
+            rates = tf.where(J > self.zero, rates, self.zeros)
+
+            # rates + stop_gradient(loihi_rates - rates) =
+            #     loihi_rates on forward pass, rates on backwards
+            return rates + tf.stop_gradient(loihi_rates - rates)
+
+        def _step(self, J, voltage, dt):
+            voltage += J * dt
+            spiked = voltage > self.one
+            spikes = tf.cast(spiked, J.dtype) * self.alpha
+            voltage = tf.where(spiked, self.zeros, tf.maximum(voltage, 0))
+
+            # we use stop_gradient to avoid propagating any nans (those get
+            # propagated through the cond even if the spiking version isn't
+            # being used at all)
+            return tf.stop_gradient(spikes), tf.stop_gradient(voltage)
+
+        def build_step(self, signals):
+            J = signals.gather(self.J_data)
+            voltage = signals.gather(self.voltage_data)
+
+            spike_out, spike_voltage = self._step(J, voltage, signals.dt)
+
+            if self.config.inference_only:
+                out, voltage = spike_out, spike_voltage
+            else:
+                rate_out = self._rate_step(J, signals.dt)
+
+                out, voltage = tf.cond(
+                    signals.training,
+                    lambda: (rate_out, voltage),
+                    lambda: (spike_out, spike_voltage))
+
+            signals.scatter(self.output_data, out)
+            signals.scatter(self.voltage_data, voltage)
+
+    nengo_dl.neuron_builders.SimNeuronsBuilder.TF_NEURON_IMPL[
+        LoihiLIF] = LoihiLIFBuilder
+    nengo_dl.neuron_builders.SimNeuronsBuilder.TF_NEURON_IMPL[
+        LoihiSpikingRectifiedLinear] = LoihiSpikingRectifiedLinearBuilder

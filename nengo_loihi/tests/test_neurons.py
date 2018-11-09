@@ -83,3 +83,138 @@ def test_loihi_neurons(neuron_type, Simulator, plt, allclose):
     atol = 1. / t_final  # the fundamental unit for our rates
     assert allclose(nengo_rates, ref, atol=atol, rtol=0, xtol=1)
     assert allclose(loihi_rates, ref, atol=atol, rtol=0, xtol=1)
+
+
+@pytest.mark.parametrize(
+    'neuron_type', [LoihiLIF(amplitude=1.0, tau_rc=0.02, tau_ref=0.002),
+                    LoihiLIF(amplitude=0.063, tau_rc=0.05, tau_ref=0.001),
+                    LoihiSpikingRectifiedLinear(),
+                    LoihiSpikingRectifiedLinear(amplitude=0.42)])
+def test_nengo_dl_neurons(neuron_type, plt, allclose):
+    pytest.importorskip('nengo_dl')
+    import nengo_dl
+    from nengo_extras.neurons import SoftLIFRate
+    import tensorflow as tf
+    from tensorflow.python.ops import gradient_checker
+
+    dt = 0.001
+    nx = 256
+
+    gain = 1
+    bias = 0
+
+    params = dict(amplitude=neuron_type.amplitude)
+    if isinstance(neuron_type, LoihiLIF):
+        x = np.linspace(-1, 30, nx)
+
+        sigma = 0.02
+        params.update(dict(tau_rc=neuron_type.tau_rc,
+                           tau_ref=neuron_type.tau_ref))
+
+        params2 = dict(params)
+        params2['tau_ref'] = params2['tau_ref'] + 0.5*dt
+    elif isinstance(neuron_type, LoihiSpikingRectifiedLinear):
+        x = np.linspace(-1, 999, nx)
+
+        tau_ref1 = 0.5*dt
+        j = neuron_type.current(x, gain, bias) - 1
+
+    with nengo.Network() as model:
+        if isinstance(neuron_type, LoihiLIF):
+            nengo_dl.configure_settings(lif_smoothing=sigma)
+
+        u = nengo.Node([0] * nx)
+        a = nengo.Ensemble(nx, 1, neuron_type=neuron_type,
+                           gain=nengo.dists.Choice([gain]),
+                           bias=nengo.dists.Choice([bias]))
+        nengo.Connection(u, a.neurons, synapse=None)
+        ap = nengo.Probe(a.neurons)
+
+    # --- compute rates
+    y_ref = loihi_rates(neuron_type, x, gain, bias, dt=dt)
+
+    # y_med is an approximation of the smoothed Loihi tuning curve
+    if isinstance(neuron_type, LoihiLIF):
+        y_med = nengo.LIF(**params2).rates(x, gain, bias)
+    elif isinstance(neuron_type, LoihiSpikingRectifiedLinear):
+        y_med = np.zeros_like(j)
+        y_med[j > 0] = neuron_type.amplitude / (tau_ref1 + 1./j[j > 0])
+
+    with nengo_dl.Simulator(model, dt=dt) as sim:
+        sim.run_steps(1, input_feeds={u: x[None, None, :]},
+                      extra_feeds={sim.tensor_graph.signals.training: True})
+        y = sim.data[ap][0]
+
+    # --- compute spiking rates
+    n_spike_steps = 1000
+    x_spikes = x + np.zeros((1, n_spike_steps, 1), dtype=x.dtype)
+    with nengo_dl.Simulator(model, dt=dt) as sim:
+        sim.run_steps(n_spike_steps,
+                      input_feeds={u: x_spikes},
+                      extra_feeds={sim.tensor_graph.signals.training: False})
+        y_spikes = sim.data[ap]
+        y_spikerate = y_spikes.mean(axis=0)
+
+    # --- compute derivates
+    if isinstance(neuron_type, LoihiLIF):
+        dy_ref = SoftLIFRate(sigma=sigma, **params2).derivative(x, gain, bias)
+    else:
+        # use the derivative of y_med (the smoothed Loihi tuning curve)
+        dy_ref = np.zeros_like(j)
+        dy_ref[j > 0] = neuron_type.amplitude / (j[j > 0]*tau_ref1 + 1)**2
+
+    with nengo_dl.Simulator(model, dt=dt) as sim:
+        n_steps = sim.unroll
+        assert n_steps == 1
+
+        inp = sim.tensor_graph.input_ph[u]
+        inp_shape = inp.get_shape().as_list()
+        inp_shape = [n_steps if s is None else s for s in inp_shape]
+        inp_data = np.zeros(inp_shape) + x[None, :, None]
+
+        out = sim.tensor_graph.probe_arrays[ap] + 0
+        out_shape = out.get_shape().as_list()
+        out_shape = [n_steps if s is None else s for s in out_shape]
+
+        data = {n: np.zeros((sim.minibatch_size, n_steps, n.size_out))
+                for n in sim.tensor_graph.invariant_inputs}
+        data.update({p: np.zeros((sim.minibatch_size, n_steps, p.size_in))
+                     for p in sim.tensor_graph.target_phs})
+        feed = sim._fill_feed(n_steps, data=data, training=True)
+
+        with tf.variable_scope(tf.get_variable_scope()) as scope:
+            dx, dy = gradient_checker._compute_dx_and_dy(inp, out, out_shape)
+            sim.sess.run(tf.variables_initializer(
+                scope.get_collection("gradient_vars")))
+
+        with sim.sess.as_default():
+            analytic = gradient_checker._compute_theoretical_jacobian(
+                inp, inp_shape, inp_data, dy, out_shape, dx,
+                extra_feed_dict=feed)
+
+        dy = np.array(np.diag(analytic))
+
+    dx = x[1] - x[0]
+    dy_est = np.diff(nengo.synapses.Alpha(10).filtfilt(y_ref, dt=1)) / dx
+    x1 = 0.5*(x[:-1] + x[1:])
+
+    # --- plots
+    plt.subplot(211)
+    plt.plot(x, y_med, '--', label='LIF(tau_ref += 0.5*dt)')
+    plt.plot(x, y, label='nengo_dl')
+    plt.plot(x, y_spikerate, label='nengo_dl spikes')
+    plt.plot(x, y_ref, 'k--', label='LoihiLIF')
+    plt.legend(loc=4)
+
+    plt.subplot(212)
+    plt.plot(x1, dy_est, '--', label='diff(smoothed_y)')
+    plt.plot(x, dy, label='nengo_dl')
+    plt.plot(x, dy_ref, 'k--', label='diff(SoftLIF)')
+    plt.legend(loc=1)
+
+    np.fill_diagonal(analytic, 0)
+    assert np.all(analytic == 0)
+
+    assert allclose(y, y_ref, atol=1e-3, rtol=1e-5)
+    assert allclose(dy, dy_ref, atol=1e-3, rtol=1e-5)
+    assert allclose(y_spikerate, y_ref, atol=1, rtol=1e-2)
