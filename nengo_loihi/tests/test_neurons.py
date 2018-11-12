@@ -3,11 +3,13 @@ import nengo
 import pytest
 
 from nengo_loihi.neurons import (
+    AlphaRCNoise,
     discretize_tau_rc,
     discretize_tau_ref,
     loihi_rates,
     LoihiLIF,
     LoihiSpikingRectifiedLinear,
+    LowpassRCNoise,
 )
 
 
@@ -223,3 +225,83 @@ def test_nengo_dl_neurons(neuron_type, plt, allclose):
     assert allclose(y, y_ref, atol=1e-3, rtol=1e-5)
     assert allclose(dy, dy_ref, atol=1e-3, rtol=1e-5)
     assert allclose(y_spikerate, y_ref, atol=1, rtol=1e-2)
+
+
+@pytest.mark.parametrize(
+    'neuron_type', [
+        LoihiLIF(amplitude=0.3, nengo_dl_noise=LowpassRCNoise(0.001)),
+        LoihiLIF(amplitude=0.3, nengo_dl_noise=AlphaRCNoise(0.001)),
+    ])
+def test_nengo_dl_noise(neuron_type, seed, plt, allclose):
+    nengo_dl = pytest.importorskip('nengo_dl')
+    from nengo_extras.neurons import SoftLIFRate
+    import tensorflow as tf
+    tf.set_random_seed(seed)
+
+    dt = 0.001
+    nx = 256  # number of x points
+    n_noise = 500  # number of noise samples per x point
+
+    gain = 1
+    bias = 0
+
+    x = np.linspace(-1, 30, nx)
+
+    params = dict(amplitude=neuron_type.amplitude,
+                  tau_rc=neuron_type.tau_rc,
+                  tau_ref=neuron_type.tau_ref)
+    params2 = dict(params)
+    params2['tau_ref'] = params2['tau_ref'] + 0.5*dt
+
+    with nengo.Network() as model:
+        u = nengo.Node([0] * nx)
+        a = nengo.Ensemble(nx, 1, neuron_type=neuron_type,
+                           gain=nengo.dists.Choice([gain]),
+                           bias=nengo.dists.Choice([bias]))
+        nengo.Connection(u, a.neurons, synapse=None)
+        ap = nengo.Probe(a.neurons)
+
+    # --- compute rates
+    y_ref = loihi_rates(neuron_type, x, gain, bias, dt=dt)
+    y_med = nengo.LIF(**params2).rates(x, gain, bias)
+
+    with nengo_dl.Simulator(model, dt=dt) as sim:
+        input_data = {u: np.tile(x[None, None, :], (n_noise, 1, 1))}
+        outputs = {ap: None}
+        y = sim.run_batch(input_data, outputs, training=True)[ap]
+        y = y[:, 0, 0, :]
+
+    ymean = y.mean(axis=0)
+    y25 = np.percentile(y, 25, axis=0)
+    y75 = np.percentile(y, 75, axis=0)
+    dy25 = y25 - y_ref
+    dy75 = y75 - y_ref
+
+    # exponential models roughly fitted to 25/75th percentiles
+    x1mask = x > 1.1
+    x1 = x[x1mask]
+    if isinstance(neuron_type.nengo_dl_noise, AlphaRCNoise):
+        exp_model = 0.5 + 3.0*np.exp(-0.2*(x1 - 1))
+    elif isinstance(neuron_type.nengo_dl_noise, LowpassRCNoise):
+        exp_model = 1.5 + 2.2*np.exp(-0.3*(x1 - 1))
+
+    # --- plots
+    plt.subplot(211)
+    plt.plot(x, y_med, '--', label='LIF(tau_ref += 0.5*dt)')
+    plt.plot(x, ymean, label='nengo_dl')
+    plt.plot(x, y25, ':', label='25th')
+    plt.plot(x, y75, ':', label='75th')
+    plt.plot(x, y_ref, 'k--', label='LoihiLIF')
+    plt.legend()
+
+    plt.subplot(212)
+    plt.plot(x, ymean - y_ref, label='mean')
+    plt.plot(x, y25 - y_ref, ':', label='25th')
+    plt.plot(x, y75 - y_ref, ':', label='75th')
+    plt.plot(x1, exp_model, 'k--')
+    plt.plot(x1, -exp_model, 'k--')
+    plt.legend()
+
+    assert allclose(ymean, y_ref, atol=0.5)  # depends on n_noise
+    assert allclose(dy25[x1mask], -exp_model, atol=0.4, rtol=0.2)
+    assert allclose(dy75[x1mask], exp_model, atol=0.4, rtol=0.2)

@@ -82,6 +82,35 @@ loihi_rate_functions = {
 
 
 class LoihiLIF(LIF):
+    """Simulate LIF neurons as done by Loihi.
+
+    On Loihi, the inter-spike interval has to be an integer. This causes
+    aliasing the firing rates where a wide variety of inputs can produce the
+    same output firing rate. This class reproduces this effect, as well as
+    the discretization of some of the neuron parameters. It can be used in
+    e.g. ``nengo`` or ``nengo_dl`` to reproduce these unique Loihi effects.
+
+    Parameters
+    ----------
+    nengo_dl_noise : NeuronOutputNoise
+        Noise added to the rate-neuron output when training with this neuron
+        type in ``nengo_dl``.
+    """
+
+    def __init__(self, tau_rc=0.02, tau_ref=0.002, min_voltage=0, amplitude=1,
+                 nengo_dl_noise=None):
+        super(LoihiLIF, self).__init__(
+            tau_rc=tau_rc, tau_ref=tau_ref, min_voltage=min_voltage,
+            amplitude=amplitude)
+        self.nengo_dl_noise = nengo_dl_noise
+
+    @property
+    def _argreprs(self):
+        args = super(LoihiLIF, self)._argreprs
+        if self.nengo_dl_noise is not None:
+            args.append("nengo_dl_noise=%s" % self.nengo_dl_noise)
+        return args
+
     def rates(self, x, gain, bias, dt=0.001):
         return loihi_lif_rates(self, x, gain, bias, dt)
 
@@ -101,6 +130,14 @@ class LoihiLIF(LIF):
 
 
 class LoihiSpikingRectifiedLinear(SpikingRectifiedLinear):
+    """Simulate spiking Rectified Linear neurons as done by Loihi.
+
+    On Loihi, the inter-spike interval has to be an integer. This causes
+    aliasing the firing rates where a wide variety of inputs can produce the
+    same output firing rate. This class reproduces this effect. It can be used
+    in e.g. ``nengo`` or ``nengo_dl`` to reproduce these unique Loihi effects.
+    """
+
     def rates(self, x, gain, bias, dt=0.001):
         return loihi_spikingrectifiedlinear_rates(self, x, gain, bias, dt)
 
@@ -234,7 +271,172 @@ def nengo_build_nif(model, nif, neurons):
     return build_lif(model, nif, neurons)
 
 
+class NeuronOutputNoise(object):
+    """Noise added to the output of a rate neuron.
+
+    Often used when training deep networks with rate neurons for final
+    implementation in spiking neurons, to simulate the variability
+    caused by the spiking neurons.
+    """
+    pass
+
+
+class LowpassRCNoise(NeuronOutputNoise):
+    """Noise model combining Lowpass synapse and neuron membrane
+
+    Attributes
+    ----------
+    tau_s : float
+        Time constant for Lowpass synaptic filter.
+    """
+    def __init__(self, tau_s):
+        self.tau_s = tau_s
+
+    def __repr__(self):
+        return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
+
+
+class AlphaRCNoise(NeuronOutputNoise):
+    """Noise model combining Alpha synapse and neuron membrane
+
+    Attributes
+    ----------
+    tau_s : float
+        Time constant for Alpha synaptic filter.
+    """
+    def __init__(self, tau_s):
+        self.tau_s = tau_s
+
+    def __repr__(self):
+        return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
+
+
 if nengo_dl is not None:  # noqa: C901
+    class NoiseBuilder(object):
+        """Build noise classes in ``nengo_dl``.
+
+        Attributes
+        ----------
+        models : list of NeuronOutputNoise
+            The noise models used for each op/signal.
+        """
+        builders = {}
+
+        def __init__(self, ops, signals, config, models):
+            self.models = models
+            self.dtype = signals.dtype
+            self.np_dtype = self.dtype.as_numpy_dtype()
+            self.np_ones = [
+                np.ones((op.J.shape[0], 1), dtype=self.np_dtype) for op in ops]
+
+        @classmethod
+        def build(cls, ops, signals, config):
+            """Create a NeuronBuilder for the provided ops.
+
+            If all neurons share the same noise model, this will return a
+            subclass of NeuronBuilder. Otherwise, it will return a
+            NeuronBuilder instance to manage all noise models.
+            """
+            models = [getattr(op.neurons, 'nengo_dl_noise', None)
+                      for op in ops]
+            model_type = type(models[0]) if len(models) > 0 else None
+            equal_types = all(type(m) is model_type for m in models)
+
+            if equal_types and model_type in cls.builders:
+                return cls.builders[model_type](ops, signals, config, models)
+            else:
+                return NoiseBuilder(ops, signals, config, models)
+
+        def generate(self, period, tau_rc=None):
+            """Generate TensorFlow code to implement these noise models.
+
+            Parameters
+            ----------
+            period : tf.Tensor
+                The inter-spike periods of the neurons to add noise to.
+            tau_rc : tf.Tensor
+                The membrane time constant of the neurons (used by some noise
+                models).
+            """
+            raise NotImplementedError(
+                "Multiple noise models not supported for the same neuron type")
+
+    class NoNoiseBuilder(NoiseBuilder):
+        """nengo_dl builder for if there is no noise model."""
+
+        def generate(self, period, tau_rc=None):
+            return tf.reciprocal(period)
+
+    class RCNoiseBuilder(NoiseBuilder):
+        """Base class for noise models that use the neuron tau_rc."""
+
+        def __init__(self, ops, signals, config, models):
+            super(RCNoiseBuilder, self).__init__(
+                ops, signals, config, models)
+
+            tau_s = np.concatenate([
+                model.tau_s * one
+                for model, one in zip(self.models, self.np_ones)])
+            self.tau_s = signals.constant(tau_s, dtype=self.dtype)
+
+        @classmethod
+        def tensorflow(cls, period, tau_s, tau_rc):
+            """Generate TensorFlow code for this model type given parameters.
+
+            Parameters
+            ----------
+            period : tf.Tensor
+                The inter-spike periods of the neurons to add noise to.
+            tau_s : tf.Tensor
+                The time constant of the Lowpass synaptic filter.
+            tau_rc : tf.Tensor
+                The membrane time constant of the neurons (used by some noise
+                models).
+            """
+            raise NotImplementedError("Subclass must implement")
+
+        def generate(self, period, tau_rc=None):
+            assert tau_rc is not None
+            return self.tensorflow(period, self.tau_s, tau_rc)
+
+    class LowpassRCNoiseBuilder(RCNoiseBuilder):
+        """nengo_dl builder for the LowpassRCNoise model."""
+
+        @classmethod
+        def tensorflow(cls, period, tau_s, tau_rc):
+            d = tau_rc - tau_s
+            u01 = tf.random_uniform(tf.shape(period))
+            t = u01 * period
+            q_rc = tf.exp(-t / tau_rc)
+            q_s = tf.exp(-t / tau_s)
+            r_rc1 = -tf.expm1(-period / tau_rc)  # 1 - exp(-period/tau_rc)
+            r_s1 = -tf.expm1(-period / tau_s)  # 1 - exp(-period/tau_s)
+            return (1./d) * (q_rc/r_rc1 - q_s/r_s1)
+
+    class AlphaRCNoiseBuilder(RCNoiseBuilder):
+        """nengo_dl builder for the AlphaRCNoise model."""
+
+        @staticmethod
+        def tensorflow(period, tau_s, tau_rc):
+            d = tau_rc - tau_s
+            u01 = tf.random_uniform(tf.shape(period))
+            t = u01 * period
+            q_rc = tf.exp(-t / tau_rc)
+            q_s = tf.exp(-t / tau_s)
+            r_rc1 = -tf.expm1(-period / tau_rc)  # 1 - exp(-period/tau_rc)
+            r_s1 = -tf.expm1(-period / tau_s)  # 1 - exp(-period/tau_s)
+
+            pt = tf.where(period < 100*tau_s, (period - t)*(1 - r_s1),
+                          tf.zeros_like(period))
+            qt = tf.where(t < 100*tau_s, q_s*(t + pt), tf.zeros_like(t))
+            rt = qt / (tau_s * d * r_s1**2)
+            rn = tau_rc*(q_rc/(d*d*r_rc1) - q_s/(d*d*r_s1)) - rt
+            return rn
+
+    NoiseBuilder.builders[type(None)] = NoNoiseBuilder
+    NoiseBuilder.builders[LowpassRCNoise] = LowpassRCNoiseBuilder
+    NoiseBuilder.builders[AlphaRCNoise] = AlphaRCNoiseBuilder
+
     class LoihiLIFBuilder(nengo_dl.neuron_builders.LIFBuilder):
         """nengo_dl builder for the LoihiLIF neuron type.
 
@@ -243,6 +445,11 @@ if nengo_dl is not None:  # noqa: C901
         spike_noise : NoiseBuilder
             Generator for any output noise associated with these neurons.
         """
+        def __init__(self, ops, signals, config):
+            super(LoihiLIFBuilder, self).__init__(ops, signals, config)
+
+            self.spike_noise = NoiseBuilder.build(ops, signals, config)
+
         def _rate_step(self, J, dt):
             tau_ref = discretize_tau_ref(self.tau_ref, dt)
             tau_rc = discretize_tau_rc(self.tau_rc, dt)
@@ -256,8 +463,10 @@ if nengo_dl is not None:  # noqa: C901
             # --- compute Loihi rates (for forward pass)
             period = tau_ref + tau_rc*tf.log1p(tf.reciprocal(
                 tf.maximum(J, self.epsilon)))
-            loihi_rates = (self.amplitude / dt) / tf.ceil(period / dt)
-            loihi_rates = tf.where(J > self.zero, loihi_rates, self.zeros)
+            period = dt * tf.ceil(period / dt)
+            loihi_rates = self.spike_noise.generate(period, tau_rc=tau_rc)
+            loihi_rates = tf.where(J > self.zero, self.amplitude * loihi_rates,
+                                   self.zeros)
 
             # --- compute LIF rates (for backward pass)
             if self.config.lif_smoothing:
