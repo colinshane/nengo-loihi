@@ -55,6 +55,10 @@ loihi_rate_functions = {
 
 
 class LoihiLIF(nengo.LIF):
+    def __init__(self, *args, nengo_dl_noise_model=None, **kwargs):
+        super(LoihiLIF, self).__init__(*args, **kwargs)
+        self.nengo_dl_noise_model = nengo_dl_noise_model
+
     def rates(self, x, gain, bias, dt=0.001):
         return loihi_lif_rates(self, x, gain, bias, dt)
 
@@ -236,7 +240,65 @@ def nengo_build_nif(model, nif, neurons):
 
 
 if nengo_dl is not None:  # noqa: C901
+    class TFSpikeNoiseGenerator(object):
+        model_ind = {
+            None: 0,
+            '': 0,
+            'alpha_rc': 1,
+        }
+
+        def __init__(self, ops, signals, config):
+            models = [(None,)
+                      if not hasattr(op.neurons, 'nengo_dl_noise_model')
+                      or op.neurons.nengo_dl_noise_model is None else
+                      op.neurons.nengo_dl_noise_model for op in ops]
+            assert all(len(model) > 0 for model in models)
+            assert all(len(model) <= 2 for model in models)
+            models = [list(model) + [0] * (2 - len(model)) for model in models]
+
+            dtype = signals.dtype
+            np_dtype = dtype.as_numpy_dtype()
+            ones = [np.ones((op.J.shape[0], 1), dtype=np_dtype) for op in ops]
+            kind = np.concatenate([self.model_ind[model[0]] * one
+                                   for model, one in zip(models, ones)])
+            self.kind = signals.constant(kind, dtype=dtype)
+            param1 = np.concatenate([model[1] * one
+                                     for model, one in zip(models, ones)])
+            self.param1 = signals.constant(param1, dtype=dtype)
+
+        @staticmethod
+        def alpha_rc_noise(period, tau_s, tau_rc):
+            d = tau_rc - tau_s
+            u01 = tf.random_uniform(tf.shape(period))
+            t = u01 * period
+            q_rc = tf.exp(-t / tau_rc)
+            q_s = tf.exp(-t / tau_s)
+            r_rc1 = -tf.expm1(-period / tau_rc)  # 1 - exp(-period/tau_rc)
+            r_s1 = -tf.expm1(-period / tau_s)  # 1 - exp(-period/tau_s)
+
+            pt = tf.where(period < 100*tau_s, (period - t)*(1 - r_s1),
+                          tf.zeros_like(period))
+            qt = tf.where(t < 100*tau_s, q_s*(t + pt), tf.zeros_like(t))
+            rt = qt / (tau_s * d * r_s1**2)
+            rn = tau_rc*(q_rc/(d*d*r_rc1) - q_s/(d*d*r_s1)) - rt
+            return rn
+
+        def generate(self, period, tau_rc=None):
+            if tau_rc is None:
+                tau_rc = tf.constant(1e-6, dtype=period.dtype)
+
+            y = tf.reciprocal(period)
+            y = tf.where(tf.equal(self.kind, self.model_ind['alpha_rc']),
+                         self.alpha_rc_noise(period, self.param1, tau_rc),
+                         y)
+            return y
+
     class LoihiLIFBuilder(nengo_dl.neuron_builders.LIFBuilder):
+        def __init__(self, ops, signals, config):
+            super(LoihiLIFBuilder, self).__init__(ops, signals, config)
+
+            self.spike_noise = TFSpikeNoiseGenerator(ops, signals, config)
+
         def _rate_step(self, J, dt):
             tau_ref = dt * tf.round(self.tau_ref / dt)
             tau_ref1 = tau_ref + 0.5*dt
@@ -249,8 +311,10 @@ if nengo_dl is not None:  # noqa: C901
             # --- compute Loihi rates (for forward pass)
             period = tau_ref + self.tau_rc*tf.log1p(tf.reciprocal(
                 tf.maximum(J, self.epsilon)))
-            loihi_rates = (self.amplitude / dt) / tf.ceil(period / dt)
-            loihi_rates = tf.where(J > self.zero, loihi_rates, self.zeros)
+            period = dt * tf.ceil(period / dt)
+            loihi_rates = self.spike_noise.generate(period, tau_rc=self.tau_rc)
+            loihi_rates = tf.where(J > self.zero, self.amplitude * loihi_rates,
+                                   self.zeros)
 
             # --- compute LIF rates (for backward pass)
             if self.config.lif_smoothing:

@@ -218,3 +218,60 @@ def test_nengo_dl_neurons(neuron_type, plt, allclose):
     assert allclose(y, y_ref, atol=1e-3, rtol=1e-5)
     assert allclose(dy, dy_ref, atol=1e-3, rtol=1e-5)
     assert allclose(y_spikerate, y_ref, atol=1, rtol=1e-2)
+
+
+@pytest.mark.parametrize(
+    'neuron_type', [
+        LoihiLIF(amplitude=0.3, nengo_dl_noise_model=('alpha_rc', 0.001)),
+    ])
+def test_nengo_dl_noise(neuron_type, plt, allclose):
+    pytest.importorskip('nengo_dl')
+    import nengo_dl
+    from nengo_extras.neurons import SoftLIFRate
+    import tensorflow as tf
+
+    dt = 0.001
+    nx = 256
+
+    gain = 1
+    bias = 0
+
+    x = np.linspace(-1, 30, nx)
+
+    params = dict(amplitude=neuron_type.amplitude)
+    params.update(dict(tau_rc=neuron_type.tau_rc,
+                       tau_ref=neuron_type.tau_ref))
+    params2 = dict(params)
+    params2['tau_ref'] = params2['tau_ref'] + 0.5*dt
+
+    sigma = 0.02
+
+    with nengo.Network() as model:
+        u = nengo.Node([0] * nx)
+        a = nengo.Ensemble(nx, 1, neuron_type=neuron_type,
+                           gain=nengo.dists.Choice([gain]),
+                           bias=nengo.dists.Choice([bias]))
+        nengo.Connection(u, a.neurons, synapse=None)
+        ap = nengo.Probe(a.neurons)
+
+    # --- compute rates
+    y_ref = loihi_rates(neuron_type, x, gain, bias, dt=dt)
+    y_med = nengo.LIF(**params2).rates(x, gain, bias)
+
+    with nengo_dl.Simulator(model, dt=dt) as sim:
+        input_data = {u: np.tile(x[None, None, :], (500, 1, 1))}
+        outputs = {ap: None}
+        y = sim.run_batch(input_data, outputs, training=True)[ap]
+        y = y[:, 0, 0, :]
+
+    ymean = y.mean(axis=0)
+    y25 = np.percentile(y, 25, axis=0)
+    y75 = np.percentile(y, 75, axis=0)
+
+    # --- plots
+    plt.plot(x, y_med, '--', label='LIF(tau_ref += 0.5*dt)')
+    plt.plot(x, ymean, label='nengo_dl')
+    plt.plot(x, y25, ':', label='25th')
+    plt.plot(x, y75, ':', label='75th')
+    plt.plot(x, y_ref, 'k--', label='LoihiLIF')
+    plt.legend()
