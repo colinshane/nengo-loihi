@@ -3,6 +3,7 @@ from nengo import Ensemble, Connection, Node
 from nengo.connection import LearningRule
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError
+from nengo.transforms import Dense
 import numpy as np
 
 from nengo_loihi.block import Probe
@@ -33,7 +34,8 @@ def conn_probe(model, nengo_probe):
             else:
                 input_dim = len(func[0])
         transform = kwargs['transform']
-        transform = np.asarray(transform, dtype=np.float64)
+        assert isinstance(transform, Dense)
+        transform = np.asarray(transform.init, dtype=np.float64)
         if transform.ndim <= 1:
             output_dim = input_dim
         elif transform.ndim == 2:
@@ -86,7 +88,10 @@ def signal_probe(model, key, probe):
     if kwargs is not None:
         if kwargs['function'] is not None:
             raise BuildError("Functions not supported for signal probe")
-        weights = kwargs['transform'].T / model.dt
+
+        assert isinstance(kwargs["transform"], Dense)
+        rng = np.random.RandomState(kwargs["seed"])
+        weights = kwargs['transform'].sample(rng=rng).T / model.dt
 
     if isinstance(probe.target, nengo.ensemble.Neurons):
         if probe.attr == 'output':
