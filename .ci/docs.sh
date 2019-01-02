@@ -8,8 +8,7 @@ COMMAND=$1
 
 if [[ "$COMMAND" == "install" ]]; then
     conda install --quiet numpy "pandoc<2"
-    pip install cython jupyter matplotlib pillow requests scipy
-    pip install "git+https://github.com/nengo/nengo-dl.git@conv_transform"
+    pip install cython jupyter matplotlib pillow requests scipy nengo-dl
     pip install "git+https://github.com/abr/abr_control.git"
     pip install -e .[docs]
 elif [[ "$COMMAND" == "script" ]]; then
