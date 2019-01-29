@@ -66,6 +66,13 @@ class LoihiLIF(nengo.LIF):
         super(LoihiLIF, self).__init__(*args, **kwargs)
         self.nengo_dl_noise = nengo_dl_noise
 
+    @property
+    def _argreprs(self):
+        args = super(LoihiLIF, self)._argreprs
+        if self.nengo_dl_noise is not None:
+            args.append("nengo_dl_noise=%s" % self.nengo_dl_noise)
+        return args
+
     def rates(self, x, gain, bias, dt=0.001):
         return loihi_lif_rates(self, x, gain, bias, dt)
 
@@ -258,6 +265,9 @@ if nengo_dl is not None:  # noqa: C901
         def __init__(self, tau_s):
             self.tau_s = tau_s
 
+        def __repr__(self):
+            return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
+
     class AlphaRCNoise(object):
         """Noise model combining Alpha synapse and neuron membrane
 
@@ -268,6 +278,9 @@ if nengo_dl is not None:  # noqa: C901
         """
         def __init__(self, tau_s):
             self.tau_s = tau_s
+
+        def __repr__(self):
+            return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
 
     class NoiseBuilder(object):
         builders = {}
