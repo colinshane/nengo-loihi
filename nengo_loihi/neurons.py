@@ -55,9 +55,9 @@ loihi_rate_functions = {
 
 
 class LoihiLIF(nengo.LIF):
-    def __init__(self, *args, nengo_dl_noise_model=None, **kwargs):
+    def __init__(self, *args, nengo_dl_noise=None, **kwargs):
         super(LoihiLIF, self).__init__(*args, **kwargs)
-        self.nengo_dl_noise_model = nengo_dl_noise_model
+        self.nengo_dl_noise = nengo_dl_noise
 
     def rates(self, x, gain, bias, dt=0.001):
         return loihi_lif_rates(self, x, gain, bias, dt)
@@ -240,34 +240,98 @@ def nengo_build_nif(model, nif, neurons):
 
 
 if nengo_dl is not None:  # noqa: C901
-    class TFSpikeNoiseGenerator(object):
-        model_ind = {
-            None: 0,
-            '': 0,
-            'alpha_rc': 1,
-        }
+    class LowpassRCNoise(object):
+        """Noise model combining Lowpass synapse and neuron membrane
 
-        def __init__(self, ops, signals, config):
-            models = [(None,)
-                      if not hasattr(op.neurons, 'nengo_dl_noise_model')
-                      or op.neurons.nengo_dl_noise_model is None else
-                      op.neurons.nengo_dl_noise_model for op in ops]
-            assert all(len(model) > 0 for model in models)
-            assert all(len(model) <= 2 for model in models)
-            models = [list(model) + [0] * (2 - len(model)) for model in models]
+        Parameters
+        ----------
+        tau_s : float
+            Time constant for Lowpass synaptic filter.
+        """
+        def __init__(self, tau_s):
+            self.tau_s = tau_s
 
-            dtype = signals.dtype
-            np_dtype = dtype.as_numpy_dtype()
-            ones = [np.ones((op.J.shape[0], 1), dtype=np_dtype) for op in ops]
-            kind = np.concatenate([self.model_ind[model[0]] * one
-                                   for model, one in zip(models, ones)])
-            self.kind = signals.constant(kind, dtype=dtype)
-            param1 = np.concatenate([model[1] * one
-                                     for model, one in zip(models, ones)])
-            self.param1 = signals.constant(param1, dtype=dtype)
 
+    class AlphaRCNoise(object):
+        """Noise model combining Alpha synapse and neuron membrane
+
+        Parameters
+        ----------
+        tau_s : float
+            Time constant for Alpha synaptic filter.
+        """
+        def __init__(self, tau_s):
+            self.tau_s = tau_s
+
+
+    class NoiseBuilder(object):
+        builders = {}
+
+        def __init__(self, models, ops, signals, config):
+            self.models = models
+            self.dtype = signals.dtype
+            self.np_dtype = self.dtype.as_numpy_dtype()
+            self.np_ones = [
+                np.ones((op.J.shape[0], 1), dtype=self.np_dtype) for op in ops]
+
+        @classmethod
+        def build(cls, ops, signals, config):
+            models = [getattr(op.neurons, 'nengo_dl_noise', None)
+                      for op in ops]
+            model_type = type(models[0]) if len(models) > 0 else None
+            equal_types = all(type(m) is model_type for m in models)
+
+            if equal_types and model_type in cls.builders:
+                return cls.builders[model_type](models, ops, signals, config)
+            else:
+                return NoiseBuilder(models, ops, signals, config)
+
+        def generate(self, period, tau_rc=None):
+            raise NotImplementedError(
+                "Multiple noise models not supported for the same neuron "
+                "type")
+
+
+    class NoNoiseBuilder(NoiseBuilder):
+        def generate(self, period, tau_rc=None):
+            return tf.reciprocal(period)
+
+
+    class RCNoiseBuilder(NoiseBuilder):
+        def __init__(self, models, ops, signals, config):
+            super(RCNoiseBuilder, self).__init__(
+                models, ops, signals, config)
+
+            tau_s = np.concatenate([
+                model.tau_s * one
+                for model, one in zip(self.models, self.np_ones)])
+            self.tau_s = signals.constant(tau_s, dtype=self.dtype)
+
+        @classmethod
+        def tensorflow(cls, period, tau_s, tau_rc):
+            raise NotImplementedError("Subclass must implement")
+
+        def generate(self, period, tau_rc=None):
+            assert tau_rc is not None
+            return self.tensorflow(period, self.tau_s, tau_rc)
+
+
+    class LowpassRCNoiseBuilder(RCNoiseBuilder):
+        @classmethod
+        def tensorflow(cls, period, tau_s, tau_rc):
+            d = tau_rc - tau_s
+            u01 = tf.random_uniform(tf.shape(period))
+            t = u01 * period
+            q_rc = tf.exp(-t / tau_rc)
+            q_s = tf.exp(-t / tau_s)
+            r_rc1 = -tf.expm1(-period / tau_rc)  # 1 - exp(-period/tau_rc)
+            r_s1 = -tf.expm1(-period / tau_s)  # 1 - exp(-period/tau_s)
+            return (1./d) * (q_rc/r_rc1 - q_s/r_s1)
+
+
+    class AlphaRCNoiseBuilder(RCNoiseBuilder):
         @staticmethod
-        def alpha_rc_noise(period, tau_s, tau_rc):
+        def tensorflow(period, tau_s, tau_rc):
             d = tau_rc - tau_s
             u01 = tf.random_uniform(tf.shape(period))
             t = u01 * period
@@ -283,21 +347,17 @@ if nengo_dl is not None:  # noqa: C901
             rn = tau_rc*(q_rc/(d*d*r_rc1) - q_s/(d*d*r_s1)) - rt
             return rn
 
-        def generate(self, period, tau_rc=None):
-            if tau_rc is None:
-                tau_rc = tf.constant(1e-6, dtype=period.dtype)
 
-            y = tf.reciprocal(period)
-            y = tf.where(tf.equal(self.kind, self.model_ind['alpha_rc']),
-                         self.alpha_rc_noise(period, self.param1, tau_rc),
-                         y)
-            return y
+    NoiseBuilder.builders[type(None)] = NoNoiseBuilder
+    NoiseBuilder.builders[LowpassRCNoise] = LowpassRCNoiseBuilder
+    NoiseBuilder.builders[AlphaRCNoise] = AlphaRCNoiseBuilder
+
 
     class LoihiLIFBuilder(nengo_dl.neuron_builders.LIFBuilder):
         def __init__(self, ops, signals, config):
             super(LoihiLIFBuilder, self).__init__(ops, signals, config)
 
-            self.spike_noise = TFSpikeNoiseGenerator(ops, signals, config)
+            self.spike_noise = NoiseBuilder.build(ops, signals, config)
 
         def _rate_step(self, J, dt):
             tau_ref = dt * tf.round(self.tau_ref / dt)
