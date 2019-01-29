@@ -293,44 +293,47 @@ def nengo_build_nif(model, nif, neurons):
     return nengo.builder.neurons.build_lif(model, nif, neurons)
 
 
+class NeuronOutputNoise(object):
+    """Noise added to the output of a rate neuron.
+
+    Often used when training deep networks with rate neurons for final
+    implementation in spiking neurons, to simulate the variability
+    caused by the spiking neurons.
+    """
+    pass
+
+
+class LowpassRCNoise(NeuronOutputNoise):
+    """Noise model combining Lowpass synapse and neuron membrane
+
+    Attributes
+    ----------
+    tau_s : float
+        Time constant for Lowpass synaptic filter.
+    """
+    def __init__(self, tau_s):
+        self.tau_s = tau_s
+
+    def __repr__(self):
+        return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
+
+
+class AlphaRCNoise(NeuronOutputNoise):
+    """Noise model combining Alpha synapse and neuron membrane
+
+    Attributes
+    ----------
+    tau_s : float
+        Time constant for Alpha synaptic filter.
+    """
+    def __init__(self, tau_s):
+        self.tau_s = tau_s
+
+    def __repr__(self):
+        return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
+
+
 if nengo_dl is not None:  # noqa: C901
-    class NeuronOutputNoise(object):
-        """Noise added to the output of a rate neuron.
-
-        Often used when training deep networks with rate neurons for final
-        implementation in spiking neurons, to simulate the variability
-        caused by the spiking neurons.
-        """
-        pass
-
-    class LowpassRCNoise(NeuronOutputNoise):
-        """Noise model combining Lowpass synapse and neuron membrane
-
-        Attributes
-        ----------
-        tau_s : float
-            Time constant for Lowpass synaptic filter.
-        """
-        def __init__(self, tau_s):
-            self.tau_s = tau_s
-
-        def __repr__(self):
-            return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
-
-    class AlphaRCNoise(NeuronOutputNoise):
-        """Noise model combining Alpha synapse and neuron membrane
-
-        Attributes
-        ----------
-        tau_s : float
-            Time constant for Alpha synaptic filter.
-        """
-        def __init__(self, tau_s):
-            self.tau_s = tau_s
-
-        def __repr__(self):
-            return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
-
     class NoiseBuilder(object):
         """Build noise classes in ``nengo_dl``.
 
