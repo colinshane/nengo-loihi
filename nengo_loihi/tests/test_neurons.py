@@ -224,8 +224,7 @@ def test_nengo_dl_neurons(neuron_type, plt, allclose):
         LoihiLIF(amplitude=0.3, nengo_dl_noise_model=('alpha_rc', 0.001)),
     ])
 def test_nengo_dl_noise(neuron_type, plt, allclose):
-    pytest.importorskip('nengo_dl')
-    import nengo_dl
+    nengo_dl = pytest.importorskip('nengo_dl')
     from nengo_extras.neurons import SoftLIFRate
     import tensorflow as tf
 
