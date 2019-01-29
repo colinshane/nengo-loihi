@@ -457,6 +457,13 @@ if nengo_dl is not None:  # noqa: C901
     NoiseBuilder.builders[AlphaRCNoise] = AlphaRCNoiseBuilder
 
     class LoihiLIFBuilder(nengo_dl.neuron_builders.LIFBuilder):
+        """nengo_dl builder for the LoihiLIF neuron type.
+
+        Attributes
+        ----------
+        spike_noise : NoiseBuilder
+            Generator for any output noise associated with these neurons.
+        """
         def __init__(self, ops, signals, config):
             super(LoihiLIFBuilder, self).__init__(ops, signals, config)
 
@@ -565,6 +572,9 @@ if nengo_dl is not None:  # noqa: C901
 
     class LoihiSpikingRectifiedLinearBuilder(
             nengo_dl.neuron_builders.SpikingRectifiedLinearBuilder):
+        """nengo_dl builder for the LoihiSpikingRectifiedLinear neuron type.
+        """
+
         def __init__(self, ops, signals, config):
             super(LoihiSpikingRectifiedLinearBuilder, self).__init__(
                 ops, signals, config)
