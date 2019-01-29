@@ -16,14 +16,21 @@ except ImportError:
     tf = None
 
 
-def loihi_lif_rates(neuron_type, x, gain, bias, dt):
-    # discretize tau_ref as per CxGroup.configure_lif
-    tau_ref = dt * np.round(neuron_type.tau_ref / dt)
-
-    # discretize tau_rc as per CxGroup.discretize
-    decay_rc = -np.expm1(-dt/neuron_type.tau_rc)
+def discretize_tau_rc(tau_rc, dt):
+    """Discretize tau_rc as per CxGroup.discretize"""
+    decay_rc = -np.expm1(-dt / tau_rc)
     decay_rc = np.round(decay_rc * (2**12 - 1)) / (2**12 - 1)
-    tau_rc = -dt/np.log1p(-decay_rc)
+    return -dt/np.log1p(-decay_rc)
+
+
+def discretize_tau_ref(tau_ref, dt):
+    """Discretize tau_ref as per CxGroup.configure_lif"""
+    return dt * np.round(tau_ref / dt)
+
+
+def loihi_lif_rates(neuron_type, x, gain, bias, dt):
+    tau_ref = discretize_tau_ref(neuron_type.tau_ref, dt)
+    tau_rc = discretize_tau_rc(neuron_type.tau_rc, dt)
 
     j = neuron_type.current(x, gain, bias) - 1
     out = np.zeros_like(j)
@@ -366,13 +373,18 @@ if nengo_dl is not None:  # noqa: C901
             # always below the LIF rate. Using `tau_ref1` in LIF curve makes
             # it the average of the LoihiLIF curve (rather than upper bound).
 
+            # discretize tau_rc as per CxGroup.discretize
+            decay_rc = -tf.expm1(-dt / self.tau_rc)
+            decay_rc = tf.round(decay_rc * (2**12 - 1)) / (2**12 - 1)
+            tau_rc = -dt / tf.log1p(-decay_rc)
+
             J -= self.one
 
             # --- compute Loihi rates (for forward pass)
-            period = tau_ref + self.tau_rc*tf.log1p(tf.reciprocal(
+            period = tau_ref + tau_rc*tf.log1p(tf.reciprocal(
                 tf.maximum(J, self.epsilon)))
             period = dt * tf.ceil(period / dt)
-            loihi_rates = self.spike_noise.generate(period, tau_rc=self.tau_rc)
+            loihi_rates = self.spike_noise.generate(period, tau_rc=tau_rc)
             loihi_rates = tf.where(J > self.zero, self.amplitude * loihi_rates,
                                    self.zeros)
 
@@ -392,10 +404,10 @@ if nengo_dl is not None:  # noqa: C901
                              tf.log1p(tf.reciprocal(z)),
                              -js - tf.log(self.sigma))
 
-                rates = self.amplitude / (tau_ref1 + self.tau_rc * q)
+                rates = self.amplitude / (tau_ref1 + tau_rc*q)
             else:
                 rates = self.amplitude / (
-                    tau_ref1 + self.tau_rc*tf.log1p(tf.reciprocal(
+                    tau_ref1 + tau_rc*tf.log1p(tf.reciprocal(
                         tf.maximum(J, self.epsilon))))
                 rates = tf.where(J > self.zero, rates, self.zeros)
 
@@ -406,8 +418,13 @@ if nengo_dl is not None:  # noqa: C901
         def _step(self, J, voltage, refractory, dt):
             tau_ref = dt * tf.round(self.tau_ref / dt)
 
+            # discretize tau_rc as per CxGroup.discretize
+            decay_rc = -tf.expm1(-dt / self.tau_rc)
+            decay_rc = tf.round(decay_rc * (2**12 - 1)) / (2**12 - 1)
+            tau_rc = -dt / tf.log1p(-decay_rc)
+
             delta_t = tf.clip_by_value(dt - refractory, self.zero, dt)
-            voltage -= (J - voltage) * tf.expm1(-delta_t / self.tau_rc)
+            voltage -= (J - voltage) * tf.expm1(-delta_t / tau_rc)
 
             spiked = voltage > self.one
             spikes = tf.cast(spiked, J.dtype) * self.alpha

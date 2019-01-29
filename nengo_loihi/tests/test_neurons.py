@@ -4,6 +4,8 @@ import pytest
 
 from nengo_loihi.neurons import (
     AlphaRCNoise,
+    discretize_tau_rc,
+    discretize_tau_ref,
     loihi_rates,
     LoihiLIF,
     LoihiSpikingRectifiedLinear,
@@ -116,7 +118,8 @@ def test_nengo_dl_neurons(neuron_type, plt, allclose):
                            tau_ref=neuron_type.tau_ref))
 
         params2 = dict(params)
-        params2['tau_ref'] = params2['tau_ref'] + 0.5*dt
+        params2['tau_ref'] = discretize_tau_ref(params['tau_ref'], dt) + 0.5*dt
+        params2['tau_rc'] = discretize_tau_rc(params['tau_rc'], dt)
     elif isinstance(neuron_type, LoihiSpikingRectifiedLinear):
         x = np.linspace(-1, 999, nx)
 
