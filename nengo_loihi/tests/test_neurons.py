@@ -91,8 +91,7 @@ def test_loihi_neurons(neuron_type, Simulator, plt, allclose):
                     LoihiSpikingRectifiedLinear(),
                     LoihiSpikingRectifiedLinear(amplitude=0.42)])
 def test_nengo_dl_neurons(neuron_type, plt, allclose):
-    pytest.importorskip('nengo_dl')
-    import nengo_dl
+    nengo_dl = pytest.importorskip('nengo_dl')
     from nengo_extras.neurons import SoftLIFRate
     import tensorflow as tf
     from tensorflow.python.ops import gradient_checker
