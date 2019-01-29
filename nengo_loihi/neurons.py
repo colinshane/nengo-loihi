@@ -17,14 +17,30 @@ except ImportError:
 
 
 def discretize_tau_rc(tau_rc, dt):
-    """Discretize tau_rc as per CxGroup.discretize"""
+    """Discretize tau_rc as per CxGroup.discretize
+
+    Parameters
+    ----------
+    tau_rc : float
+        The neuron membrane time constant.
+    dt : float
+        The simulator time step.
+    """
     decay_rc = -np.expm1(-dt / tau_rc)
     decay_rc = np.round(decay_rc * (2**12 - 1)) / (2**12 - 1)
     return -dt/np.log1p(-decay_rc)
 
 
 def discretize_tau_ref(tau_ref, dt):
-    """Discretize tau_ref as per CxGroup.configure_lif"""
+    """Discretize tau_ref as per CxGroup.configure_lif
+
+    Parameters
+    ----------
+    tau_rc : float
+        The neuron membrane time constant.
+    dt : float
+        The simulator time step.
+    """
     return dt * np.round(tau_ref / dt)
 
 
@@ -62,6 +78,21 @@ loihi_rate_functions = {
 
 
 class LoihiLIF(nengo.LIF):
+    """Simulate LIF neurons as done by Loihi.
+
+    On Loihi, the inter-spike interval has to be an integer. This causes
+    aliasing the firing rates where a wide variety of inputs can produce the
+    same output firing rate. This class reproduces this effect, as well as
+    the discretization of some of the neuron parameters. It can be used in
+    e.g. ``nengo`` or ``nengo_dl`` to reproduce these unique Loihi effects.
+
+    Parameters
+    ----------
+    nengo_dl_noise : NeuronOutputNoise
+        Noise added to the rate-neuron output when training with this neuron
+        type in ``nengo_dl``.
+    """
+
     def __init__(self, *args, nengo_dl_noise=None, **kwargs):
         super(LoihiLIF, self).__init__(*args, **kwargs)
         self.nengo_dl_noise = nengo_dl_noise
@@ -77,11 +108,12 @@ class LoihiLIF(nengo.LIF):
         return loihi_lif_rates(self, x, gain, bias, dt)
 
     def step_math(self, dt, J, spiked, voltage, refractory_time):
-        tau_ref = dt * np.round(self.tau_ref / dt)
-        refractory_time -= dt
+        tau_ref = discretize_tau_ref(self.tau_ref, dt)
+        tau_rc = discretize_tau_rc(self.tau_rc, dt)
 
+        refractory_time -= dt
         delta_t = (dt - refractory_time).clip(0, dt)
-        voltage -= (J - voltage) * np.expm1(-delta_t / self.tau_rc)
+        voltage -= (J - voltage) * np.expm1(-delta_t / tau_rc)
 
         spiked_mask = voltage > 1
         spiked[:] = spiked_mask * (self.amplitude / dt)
@@ -92,6 +124,14 @@ class LoihiLIF(nengo.LIF):
 
 
 class LoihiSpikingRectifiedLinear(nengo.SpikingRectifiedLinear):
+    """Simulate spiking Rectified Linear neurons as done by Loihi.
+
+    On Loihi, the inter-spike interval has to be an integer. This causes
+    aliasing the firing rates where a wide variety of inputs can produce the
+    same output firing rate. This class reproduces this effect. It can be used
+    in e.g. ``nengo`` or ``nengo_dl`` to reproduce these unique Loihi effects.
+    """
+
     def rates(self, x, gain, bias, dt=0.001):
         return loihi_spikingrectifiedlinear_rates(self, x, gain, bias, dt)
 
@@ -254,10 +294,19 @@ def nengo_build_nif(model, nif, neurons):
 
 
 if nengo_dl is not None:  # noqa: C901
-    class LowpassRCNoise(object):
+    class NeuronOutputNoise(object):
+        """Noise added to the output of a rate neuron.
+
+        Often used when training deep networks with rate neurons for final
+        implementation in spiking neurons, to simulate the variability
+        caused by the spiking neurons.
+        """
+        pass
+
+    class LowpassRCNoise(NeuronOutputNoise):
         """Noise model combining Lowpass synapse and neuron membrane
 
-        Parameters
+        Attributes
         ----------
         tau_s : float
             Time constant for Lowpass synaptic filter.
@@ -268,10 +317,10 @@ if nengo_dl is not None:  # noqa: C901
         def __repr__(self):
             return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
 
-    class AlphaRCNoise(object):
+    class AlphaRCNoise(NeuronOutputNoise):
         """Noise model combining Alpha synapse and neuron membrane
 
-        Parameters
+        Attributes
         ----------
         tau_s : float
             Time constant for Alpha synaptic filter.
@@ -283,9 +332,16 @@ if nengo_dl is not None:  # noqa: C901
             return "%s(tau_s=%s)" % (type(self).__name__, self.tau_s)
 
     class NoiseBuilder(object):
+        """Build noise classes in ``nengo_dl``.
+
+        Attributes
+        ----------
+        models : list of NeuronOutputNoise
+            The noise models used for each op/signal.
+        """
         builders = {}
 
-        def __init__(self, models, ops, signals, config):
+        def __init__(self, ops, signals, config, models):
             self.models = models
             self.dtype = signals.dtype
             self.np_dtype = self.dtype.as_numpy_dtype()
@@ -294,27 +350,46 @@ if nengo_dl is not None:  # noqa: C901
 
         @classmethod
         def build(cls, ops, signals, config):
+            """Create a NeuronBuilder for the provided ops.
+
+            If all neurons share the same noise model, this will return a
+            subclass of NeuronBuilder. Otherwise, it will return a
+            NeuronBuilder instance to manage all noise models.
+            """
             models = [getattr(op.neurons, 'nengo_dl_noise', None)
                       for op in ops]
             model_type = type(models[0]) if len(models) > 0 else None
             equal_types = all(type(m) is model_type for m in models)
 
             if equal_types and model_type in cls.builders:
-                return cls.builders[model_type](models, ops, signals, config)
+                return cls.builders[model_type](ops, signals, config, models)
             else:
-                return NoiseBuilder(models, ops, signals, config)
+                return NoiseBuilder(ops, signals, config, models)
 
         def generate(self, period, tau_rc=None):
+            """Generate TensorFlow code to implement these noise models.
+
+            Parameters
+            ----------
+            period : tf.Tensor
+                The inter-spike periods of the neurons to add noise to.
+            tau_rc : tf.Tensor
+                The membrane time constant of the neurons (used by some noise
+                models).
+            """
             raise NotImplementedError(
-                "Multiple noise models not supported for the same neuron "
-                "type")
+                "Multiple noise models not supported for the same neuron type")
 
     class NoNoiseBuilder(NoiseBuilder):
+        """nengo_dl builder for if there is no noise model."""
+
         def generate(self, period, tau_rc=None):
             return tf.reciprocal(period)
 
     class RCNoiseBuilder(NoiseBuilder):
-        def __init__(self, models, ops, signals, config):
+        """Base class for noise models that use the neuron tau_rc."""
+
+        def __init__(self, ops, signals, config, models):
             super(RCNoiseBuilder, self).__init__(
                 models, ops, signals, config)
 
@@ -325,6 +400,18 @@ if nengo_dl is not None:  # noqa: C901
 
         @classmethod
         def tensorflow(cls, period, tau_s, tau_rc):
+            """Generate TensorFlow code for this model type given parameters.
+
+            Parameters
+            ----------
+            period : tf.Tensor
+                The inter-spike periods of the neurons to add noise to.
+            tau_s : tf.Tensor
+                The time constant of the Lowpass synaptic filter.
+            tau_rc : tf.Tensor
+                The membrane time constant of the neurons (used by some noise
+                models).
+            """
             raise NotImplementedError("Subclass must implement")
 
         def generate(self, period, tau_rc=None):
@@ -332,6 +419,8 @@ if nengo_dl is not None:  # noqa: C901
             return self.tensorflow(period, self.tau_s, tau_rc)
 
     class LowpassRCNoiseBuilder(RCNoiseBuilder):
+        """nengo_dl builder for the LowpassRCNoise model."""
+
         @classmethod
         def tensorflow(cls, period, tau_s, tau_rc):
             d = tau_rc - tau_s
@@ -344,6 +433,8 @@ if nengo_dl is not None:  # noqa: C901
             return (1./d) * (q_rc/r_rc1 - q_s/r_s1)
 
     class AlphaRCNoiseBuilder(RCNoiseBuilder):
+        """nengo_dl builder for the AlphaRCNoise model."""
+
         @staticmethod
         def tensorflow(period, tau_s, tau_rc):
             d = tau_rc - tau_s
