@@ -394,7 +394,7 @@ if nengo_dl is not None:  # noqa: C901
 
         def __init__(self, ops, signals, config, models):
             super(RCNoiseBuilder, self).__init__(
-                models, ops, signals, config)
+                ops, signals, config, models)
 
             tau_s = np.concatenate([
                 model.tau_s * one
