@@ -258,7 +258,6 @@ if nengo_dl is not None:  # noqa: C901
         def __init__(self, tau_s):
             self.tau_s = tau_s
 
-
     class AlphaRCNoise(object):
         """Noise model combining Alpha synapse and neuron membrane
 
@@ -269,7 +268,6 @@ if nengo_dl is not None:  # noqa: C901
         """
         def __init__(self, tau_s):
             self.tau_s = tau_s
-
 
     class NoiseBuilder(object):
         builders = {}
@@ -298,11 +296,9 @@ if nengo_dl is not None:  # noqa: C901
                 "Multiple noise models not supported for the same neuron "
                 "type")
 
-
     class NoNoiseBuilder(NoiseBuilder):
         def generate(self, period, tau_rc=None):
             return tf.reciprocal(period)
-
 
     class RCNoiseBuilder(NoiseBuilder):
         def __init__(self, models, ops, signals, config):
@@ -322,7 +318,6 @@ if nengo_dl is not None:  # noqa: C901
             assert tau_rc is not None
             return self.tensorflow(period, self.tau_s, tau_rc)
 
-
     class LowpassRCNoiseBuilder(RCNoiseBuilder):
         @classmethod
         def tensorflow(cls, period, tau_s, tau_rc):
@@ -334,7 +329,6 @@ if nengo_dl is not None:  # noqa: C901
             r_rc1 = -tf.expm1(-period / tau_rc)  # 1 - exp(-period/tau_rc)
             r_s1 = -tf.expm1(-period / tau_s)  # 1 - exp(-period/tau_s)
             return (1./d) * (q_rc/r_rc1 - q_s/r_s1)
-
 
     class AlphaRCNoiseBuilder(RCNoiseBuilder):
         @staticmethod
@@ -354,11 +348,9 @@ if nengo_dl is not None:  # noqa: C901
             rn = tau_rc*(q_rc/(d*d*r_rc1) - q_s/(d*d*r_s1)) - rt
             return rn
 
-
     NoiseBuilder.builders[type(None)] = NoNoiseBuilder
     NoiseBuilder.builders[LowpassRCNoise] = LowpassRCNoiseBuilder
     NoiseBuilder.builders[AlphaRCNoise] = AlphaRCNoiseBuilder
-
 
     class LoihiLIFBuilder(nengo_dl.neuron_builders.LIFBuilder):
         def __init__(self, ops, signals, config):
