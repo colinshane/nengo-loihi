@@ -7,7 +7,8 @@ NAME=$0
 COMMAND=$1
 
 if [[ "$COMMAND" == "install" ]]; then
-    conda install --quiet mkl numpy scipy
+    conda install --quiet mkl numpy
+    pip install scipy
     pip install "git+https://github.com/nengo/nengo-dl.git@conv_transform"
     pip install -e .[tests]
 elif [[ "$COMMAND" == "script" ]]; then
