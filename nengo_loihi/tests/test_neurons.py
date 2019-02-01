@@ -234,9 +234,7 @@ def test_nengo_dl_neurons(neuron_type, plt, allclose):
     ])
 def test_nengo_dl_noise(neuron_type, seed, plt, allclose):
     nengo_dl = pytest.importorskip('nengo_dl')
-    from nengo_extras.neurons import SoftLIFRate
     import tensorflow as tf
-    tf.set_random_seed(seed)
 
     dt = 0.001
     nx = 256  # number of x points
@@ -265,11 +263,12 @@ def test_nengo_dl_noise(neuron_type, seed, plt, allclose):
     y_ref = loihi_rates(neuron_type, x, gain, bias, dt=dt)
     y_med = nengo.LIF(**params2).rates(x, gain, bias)
 
-    with nengo_dl.Simulator(model, dt=dt) as sim:
+    with nengo_dl.Simulator(
+            model, dt=dt, minibatch_size=n_noise, seed=seed) as sim:
         input_data = {u: np.tile(x[None, None, :], (n_noise, 1, 1))}
-        outputs = {ap: None}
-        y = sim.run_batch(input_data, outputs, training=True)[ap]
-        y = y[:, 0, 0, :]
+        sim.step(input_feeds=input_data,
+                 extra_feeds={sim.tensor_graph.signals.training: True})
+        y = sim.data[ap][:, 0, :]
 
     ymean = y.mean(axis=0)
     y25 = np.percentile(y, 25, axis=0)
@@ -303,5 +302,5 @@ def test_nengo_dl_noise(neuron_type, seed, plt, allclose):
     plt.legend()
 
     assert allclose(ymean, y_ref, atol=0.5)  # depends on n_noise
-    assert allclose(dy25[x1mask], -exp_model, atol=0.4, rtol=0.2)
-    assert allclose(dy75[x1mask], exp_model, atol=0.4, rtol=0.2)
+    assert allclose(dy25[x1mask], -exp_model, atol=0.45, rtol=0.2)
+    assert allclose(dy75[x1mask], exp_model, atol=0.45, rtol=0.2)
