@@ -1,3 +1,4 @@
+import logging
 import warnings
 
 from nengo.builder import Builder as NengoBuilder
@@ -7,11 +8,14 @@ from nengo.neurons import LIF, NeuronType, SpikingRectifiedLinear
 from nengo.params import NumberParam
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 try:
     import nengo_dl
     import nengo_dl.neuron_builders
     import tensorflow as tf
-except ImportError:  # pragma: no cover
+except ImportError as e:  # pragma: no cover
+    logger.debug("Error import nengo_dl/tensorflow: %s", e)
     nengo_dl = None
     tf = None
 
