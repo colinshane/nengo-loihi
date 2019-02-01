@@ -12,10 +12,9 @@ from nengo.exceptions import BuildError
 from nengo.utils.compat import is_iterable
 import numpy as np
 
-try:
-    import nengo_dl
-except ImportError:
-    nengo_dl = None
+import nengo_dl
+# except ImportError:
+#     nengo_dl = None
 
 from nengo_loihi.block import Axon, LoihiBlock, Synapse
 from nengo_loihi.inputs import ChipReceiveNeurons, LoihiInput
