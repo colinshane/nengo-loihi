@@ -7,7 +7,7 @@ NAME=$0
 COMMAND=$1
 
 if [[ "$COMMAND" == "install" ]]; then
-    conda install --quiet matplotlib mkl numpy scipy tensorflow
+    conda install --quiet matplotlib mkl numpy scipy
     pip install "git+https://github.com/nengo/nengo-dl.git@conv_transform"
     pip install -e .[tests]
 elif [[ "$COMMAND" == "script" ]]; then
