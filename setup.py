@@ -22,6 +22,28 @@ version_module = imp.load_source(
     "version", os.path.join(root, "nengo_loihi", "version.py"))
 testing = "test" in sys.argv or "pytest" in sys.argv
 
+install_requires = [
+    "jinja2",
+    "nengo>=2.8.0",
+]
+docs_require = [
+    "abr_control",
+    "jupyter",
+    "matplotlib>=2.0",
+    "nbsphinx",
+    "nbconvert<5.4",
+    "nengo_sphinx_theme>=0.7",
+    "numpydoc>=0.6",
+    "sphinx>=1.8",
+]
+tests_require = [
+    "coverage>=4.3",
+    "nengo-extras",
+    "pytest>=3.4,<4",
+    "pytest-plt",
+    "matplotlib>=2.0",
+]
+
 setup(
     name="nengo_loihi",
     version=version_module.version,
@@ -40,28 +62,13 @@ setup(
     setup_requires=[
         "nengo",
     ],
-    install_requires=[
-        "jinja2",
-        "nengo>=2.8.0",
-    ],
+    install_requires=install_requires,
     extras_require={
-        "docs": [
-            "abr_control",
-            "jupyter",
-            "matplotlib>=2.0",
-            "nbsphinx",
-            "nbconvert<5.4",
-            "nengo_sphinx_theme>=0.7",
-            "numpydoc>=0.6",
-            "sphinx>=1.8",
-        ],
-        "tests": [
-            "coverage>=4.3",
-            "nengo-extras",
-            "pytest>=3.4,<4",
-            "matplotlib>=2.0",
-        ],
+        "all": docs_require + install_requires,
+        "docs": docs_require,
+        "tests": tests_require,
     },
+    tests_require=tests_require,
     entry_points={
         'nengo.backends': [
             'loihi = nengo_loihi:Simulator'
