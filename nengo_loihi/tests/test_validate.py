@@ -2,18 +2,8 @@ from nengo.exceptions import BuildError
 import numpy as np
 import pytest
 
-from nengo_loihi.block import Axon, LoihiBlock, Synapse, Probe
-from nengo_loihi.builder import Model
-from nengo_loihi.discretize import discretize_model, VTH_MAX
-from nengo_loihi.emulator import EmulatorInterface
-from nengo_loihi.hardware import HardwareInterface
-from nengo_loihi.inputs import SpikeInput
-from nengo_loihi.validate import (
-    validate_axon,
-    validate_block,
-    validate_compartment,
-    validate_synapse,
-)
+from nengo_loihi.block import Axon, LoihiBlock, Synapse
+from nengo_loihi.validate import validate_block
 
 
 def test_validate_block():
