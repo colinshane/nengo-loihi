@@ -224,6 +224,48 @@ def test_multiple_pes(init_function, allclose, plt, seed, Simulator):
                         atol=0.05, rtol=0.05), "Target %d not close" % i
 
 
+def test_pes_deterministic(request, Simulator, seed, plt, allclose):
+    """Ensure that learning output is the same between runs"""
+    if request.config.getoption('--target') == 'loihi':
+        pytest.xfail("Seed cannot be set on Loihi")
+
+    # Make a network with lots of objects, so dictionary order has an effect
+    n_errors = 3
+    targets = np.linspace(-0.8, 0.95, n_errors)
+    with nengo.Network(seed=seed) as model:
+        pre_ea = nengo.networks.EnsembleArray(50, n_ensembles=n_errors)
+        output = nengo.Node(size_in=n_errors)
+
+        target = nengo.Node(targets)
+
+        for i in range(n_errors):
+            conn = nengo.Connection(
+                pre_ea.ea_ensembles[i],
+                output[i],
+                learning_rule_type=nengo.PES(learning_rate=1e-2),
+            )
+            nengo.Connection(target[i], conn.learning_rule, transform=-1)
+            nengo.Connection(output[i], conn.learning_rule)
+
+        probe = nengo.Probe(output, synapse=0.005)
+
+    # some random aspects (e.g. dictionary order) only have a few combinations,
+    # so more sims makes it less likely we'll get the same order by chance,
+    # if things are truly non-deterministic
+    n_sims = 3
+    simtime = 0.1
+    sim_seed = seed + 1
+    sims = []
+    for _ in range(n_sims):
+        with Simulator(model) as sim:
+            sim.run(simtime)
+        sims.append(sim)
+
+    sim0 = sims[0]
+    for sim in sims[1:]:
+        assert allclose(sim.data[probe], sim0.data[probe])
+
+
 def test_pes_pre_synapse_type_error(Simulator):
     with nengo.Network() as model:
         pre = nengo.Ensemble(10, 1)
