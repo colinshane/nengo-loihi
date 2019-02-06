@@ -48,6 +48,25 @@ def test_probedict_fallbacks(precompute, Simulator):
     assert conn_bc  # in sim.data
 
 
+def test_probedict_interface(Simulator):
+    with nengo.Network(label='net') as net:
+        u = nengo.Node(1, label='u')
+        a = nengo.Ensemble(9, 1, label='a')
+        nengo.Connection(u, a)
+
+    with Simulator(net) as sim:
+        pass
+
+    objs = [u, a]
+    count = 0
+    for o in sim.data:
+        count += 1
+        if o in objs:
+            objs.remove(o)
+    assert len(sim.data) == count
+    assert len(objs) == 0, "Objects did not appear in probedict: %s" % objs
+
+
 @pytest.mark.xfail
 @pytest.mark.parametrize(
     "dt, pre_on_chip",
