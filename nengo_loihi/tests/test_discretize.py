@@ -4,10 +4,11 @@ from nengo.utils.numpy import rms
 import numpy as np
 import pytest
 
-from nengo_loihi.block import SynapseFmt
+from nengo_loihi.block import LoihiBlock, SynapseFmt
 from nengo_loihi.discretize import (
     decay_int,
     decay_magnitude,
+    discretize_block,
     discretize_weights,
     overflow_signed,
 )
@@ -120,3 +121,12 @@ def test_bad_weight_exponent_error(Simulator):
     with pytest.raises(BuildError, match="[Cc]ould not find.*weight exp"):
         with Simulator(net):
             pass
+
+
+def test_bad_bias_scaling_error(Simulator):
+    block = LoihiBlock(10)
+    block.compartment.configure_lif(tau_rc=5., vth=1e8)
+    block.compartment.bias[:] = 1000.
+
+    with pytest.raises(BuildError, match="[Cc]ould not find.*bias scaling"):
+        discretize_block(block)
