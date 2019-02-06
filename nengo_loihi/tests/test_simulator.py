@@ -329,3 +329,20 @@ def test_tau_s_warning(Simulator):
     assert any(rec.message.args[0] == (
         "tau_s is already set to 0.1, which is larger than 0.005. Using 0.1."
     ) for rec in record)
+
+
+@pytest.mark.skipif(pytest.config.getoption('--target') != 'loihi',
+                    reason="Only Loihi has special shutdown procedure")
+def test_loihi_simulation_exception(Simulator):
+    def node_fn(t):
+        if t < 0.002:
+            return 0
+        else:
+            raise RuntimeError("exception to kill the simulation")
+
+    with nengo.Network() as net:
+        u = nengo.Node(node_fn)
+
+    with nengo.Simulator(node_fn):
+        sim.run(0.01)
+        assert not sim.sims['loihi'].nxDriver.conn
