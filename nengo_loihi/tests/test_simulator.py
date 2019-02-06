@@ -342,7 +342,9 @@ def test_loihi_simulation_exception(Simulator):
 
     with nengo.Network() as net:
         u = nengo.Node(node_fn)
+        e = nengo.Ensemble(8, 1)
+        nengo.Connection(u, e)
 
-    with nengo.Simulator(node_fn):
+    with Simulator(net, precompute=False) as sim:
         sim.run(0.01)
         assert not sim.sims['loihi'].nxDriver.conn
