@@ -254,7 +254,6 @@ def test_pes_deterministic(request, Simulator, seed, plt, allclose):
     # if things are truly non-deterministic
     n_sims = 3
     simtime = 0.1
-    sim_seed = seed + 1
     sims = []
     for _ in range(n_sims):
         with Simulator(model) as sim:
