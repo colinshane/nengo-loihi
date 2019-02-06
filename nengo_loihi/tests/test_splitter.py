@@ -12,7 +12,6 @@ from nengo_loihi.inputs import (
     HostReceiveNode,
     HostSendNode,
 )
-from nengo_loihi.neurons import NIF
 from nengo_loihi.splitter import (
     PESModulatoryTarget,
     place_ensembles,
@@ -213,7 +212,7 @@ def test_split_host_to_chip():
                 ensneurons2send = added
 
         assert networks.location(ens) == "host"
-        assert isinstance(ens.neuron_type, NIF)
+        assert isinstance(ens.neuron_type, nengo.SpikingRectifiedLinear)
         assert pre2ens.post is ens
 
         assert networks.location(receive) == "chip"
