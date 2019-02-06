@@ -1,3 +1,5 @@
+import nengo
+from nengo.exceptions import BuildError
 from nengo.utils.numpy import rms
 import numpy as np
 import pytest
@@ -106,3 +108,15 @@ def test_lossy_shift(lossy_shift, rng):
         np.int32)
 
     assert np.allclose(w2, np.left_shift(clipped, 8))
+
+
+def test_bad_weight_exponent_error(Simulator):
+    with nengo.Network() as net:
+        a = nengo.Ensemble(5, 1)
+        b = nengo.Ensemble(5, 1, neuron_type=nengo.LIF(tau_rc=5.))
+        nengo.Connection(a.neurons, b.neurons,
+                         transform=1e-8*np.ones((5, 5)), synapse=5.)
+
+    with pytest.raises(BuildError, match="[Cc]ould not find.*weight exp"):
+        with Simulator(net):
+            pass
