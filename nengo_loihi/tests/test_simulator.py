@@ -383,3 +383,24 @@ def test_double_run(precompute, Simulator, seed, allclose):
     assert allclose(sim1.time, sim0.time)
     assert len(sim1.trange()) == len(sim0.trange())
     assert allclose(sim1.data[probe], sim0.data[probe])
+
+
+@pytest.mark.hang
+@pytest.mark.skipif(pytest.config.getoption('--target') != 'loihi',
+                    reason="Only Loihi has special shutdown procedure")
+def test_loihi_simulation_exception(Simulator):
+    """Test that Loihi shuts down properly after exception durin simulation"""
+    def node_fn(t):
+        if t < 0.002:
+            return 0
+        else:
+            raise RuntimeError("exception to kill the simulation")
+
+    with nengo.Network() as net:
+        u = nengo.Node(node_fn)
+        e = nengo.Ensemble(8, 1)
+        nengo.Connection(u, e)
+
+    with Simulator(net, precompute=False) as sim:
+        sim.run(0.01)
+        assert not sim.sims['loihi'].nxDriver.conn
