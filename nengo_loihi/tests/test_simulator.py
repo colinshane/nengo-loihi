@@ -1,6 +1,7 @@
 import inspect
 
 import nengo
+from nengo.exceptions import ReadonlyError, ValidationError
 import numpy as np
 import pytest
 
@@ -329,3 +330,35 @@ def test_tau_s_warning(Simulator):
     assert any(rec.message.args[0] == (
         "tau_s is already set to 0.1, which is larger than 0.005. Using 0.1."
     ) for rec in record)
+
+
+def test_interface(Simulator, allclose):
+    """Tests for the Simulator API for things that aren't covered elsewhere"""
+    # test sim.time
+    with nengo.Network() as model:
+        nengo.Ensemble(2, 1)
+
+    simtime = 0.003
+    with Simulator(model) as sim:
+        sim.run(simtime)
+
+    assert allclose(sim.time, simtime)
+
+    # test that sim.dt is read-only
+    with pytest.raises(ReadonlyError, match="dt"):
+        sim.dt = 0.002
+
+    # test error for bad target
+    with pytest.raises(ValidationError, match="target"):
+        with Simulator(model, target="foo"):
+            pass
+
+    # test negative runtime
+    with pytest.raises(ValidationError, match="[Mm]ust be positive"):
+        with Simulator(model):
+            sim.run(-0.1)
+
+    # test zero step warning
+    with pytest.warns(UserWarning, match="0 timesteps"):
+        with Simulator(model):
+            sim.run(1e-8)
