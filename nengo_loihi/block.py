@@ -26,8 +26,6 @@ class LoihiBlock(object):
         Compartment object representing all compartments in the block.
     n_neurons : int
         The number of neurons in the block.
-    named_axons : dict {str: Axon}
-        Mapping from a name to an Axon object.
     named_synapses : dict {str: Synape}
         Mapping from a name to a Synapse object.
     label : string
@@ -43,7 +41,6 @@ class LoihiBlock(object):
 
         self.compartment = Compartment(n_compartments=n_neurons)
         self.axons = []
-        self.named_axons = {}
         self.synapses = []
         self.named_synapses = {}
         self.probes = []
@@ -58,11 +55,8 @@ class LoihiBlock(object):
             assert name not in self.named_synapses
             self.named_synapses[name] = synapse
 
-    def add_axon(self, axon, name=None):
+    def add_axon(self, axon):
         self.axons.append(axon)
-        if name is not None:
-            assert name not in self.named_axons
-            self.named_axons[name] = axon
 
     def add_probe(self, probe):
         assert probe.target is self
