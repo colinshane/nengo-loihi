@@ -552,6 +552,7 @@ class Simulator(object):
     def _make_run_steps(self):
         if self._run_steps is not None:
             return
+
         assert "emulator" not in self.sims or "loihi" not in self.sims
         if "emulator" in self.sims:
             self._make_emu_run_steps()
@@ -663,8 +664,8 @@ class Simulator(object):
         """
         if self.closed:
             raise SimulatorClosed("Simulator cannot run because it is closed.")
-        if self._run_steps is None:
-            self._make_run_steps()
+
+        self._make_run_steps()
         try:
             self._run_steps(steps)
         except Exception:
