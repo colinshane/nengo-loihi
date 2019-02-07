@@ -48,9 +48,6 @@ class Board(object):
     def find_synapse(self, synapse):
         return self.synapse_index[synapse]
 
-    def cores(self):
-        return (core for chip in self.chips for core in chip.cores)
-
     def n_chips(self):
         return len(self.chips)
 
