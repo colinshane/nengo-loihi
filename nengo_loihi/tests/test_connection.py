@@ -1,4 +1,5 @@
 import nengo
+from nengo.exceptions import BuildError
 from nengo.utils.matplotlib import rasterplot
 import numpy as np
 import pytest
@@ -224,3 +225,16 @@ def test_long_tau(Simulator):
 
     with Simulator(model) as sim:
         sim.run(0.002)  # Ensure it at least runs
+
+
+def test_zero_activity_error(Simulator):
+    with nengo.Network() as net:
+        a = nengo.Ensemble(5, 1,
+                           encoders=nengo.dists.Choice([[1.]]),
+                           intercepts=nengo.dists.Choice([0.]))
+        b = nengo.Ensemble(5, 1)
+        nengo.Connection(a, b, eval_points=[[-1]])
+
+    with pytest.raises(BuildError, match="activit.*zero"):
+        with Simulator(net):
+            pass
