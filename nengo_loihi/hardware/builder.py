@@ -464,6 +464,7 @@ def build_axons(n2core, core, block, all_axons):  # noqa C901
 
             for axon in axons:
                 pop_type, tchip_id, tcore_id, taxon_id = axon[2:]
+                assert pop_type in (0, 16, 32)
                 if pop_type == 0:  # discrete
                     assert False, "Should have been handled in code above"
                 elif pop_type == 16:  # pop16
@@ -477,8 +478,6 @@ def build_axons(n2core, core, block, all_axons):  # noqa C901
                     n2core.axonCfg[axon_id+1].pop32_1.configure()
                     axon_id += 2
                     axon_len += 2
-                else:
-                    raise ValueError("Unrecognized pop_type: %d" % (pop_type,))
 
             axon_map[key] = (axon_id0, axon_len)
 
