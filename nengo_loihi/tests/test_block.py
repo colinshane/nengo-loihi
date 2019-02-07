@@ -1,7 +1,7 @@
 from nengo.exceptions import BuildError
 import pytest
 
-from nengo_loihi.block import LoihiBlock
+from nengo_loihi.block import Axon, LoihiBlock, Synapse
 
 
 def test_compartment_errors():
@@ -24,3 +24,18 @@ def test_compartment_errors():
     # set tau_rc to a very large value so voltage scaling can't be applied
     with pytest.raises(BuildError, match="[Vv]oltage.*scaling"):
         block.compartment.configure_lif(tau_rc=1e6)
+
+
+def test_strings():
+    block = LoihiBlock(3, label="myBlock")
+    assert str(block) == "LoihiBlock(myBlock)"
+    assert str(block.compartment) == "Compartment()"
+
+    synapse = Synapse(2, label="mySynapse")
+    assert str(synapse) == "Synapse(mySynapse)"
+
+    axon = Axon(2, label="myAxon")
+    assert str(axon) == "Axon(myAxon)"
+
+    spike = Axon.Spike(axon_id=7, atom=2)
+    assert str(spike) == "Spike(axon_id=7, atom=2)"
