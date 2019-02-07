@@ -211,19 +211,6 @@ class IterableState(object):
                 for item in getattr(block, block_key):
                     yield block, item
 
-    def __contains__(self, item):
-        return item in self.slices
-
-    def __getitem__(self, key):
-        return self.slices[key]
-
-    def __iter__(self):
-        for obj in self.slices:
-            yield obj
-
-    def __len__(self):
-        return len(self.slices)
-
     def error(self, msg):
         if self.strict:
             raise SimulationError(msg)
