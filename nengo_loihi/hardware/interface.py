@@ -122,12 +122,6 @@ class HardwareInterface(object):
         # --- build
         self.n2board = build_board(self.board)
 
-    def print_cores(self):
-        for j, n2chip in enumerate(self.n2board.n2Chips):
-            print("Chip %d, id=%d" % (j, n2chip.id))
-            for k, n2core in enumerate(n2chip.n2Cores):
-                print("  Core %d, id=%d" % (k, n2core.id))
-
     def run_steps(self, steps, blocking=True):
         if self.use_snips and self.nengo_io_h2c is None:
             self.create_io_snip()
