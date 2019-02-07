@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 
 from nengo_loihi.block import LoihiBlock, SynapseFmt
+from nengo_loihi.builder import Model
+from nengo_loihi.decode_neurons import NoisyDecodeNeurons
 from nengo_loihi.discretize import (
     decay_int,
     decay_magnitude,
@@ -130,3 +132,22 @@ def test_bad_bias_scaling_error(Simulator):
 
     with pytest.raises(BuildError, match="[Cc]ould not find.*bias scaling"):
         discretize_block(block)
+
+
+def test_noise_amplitude_warnings(Simulator, seed):
+    with nengo.Network(seed=seed) as net:
+        a = nengo.Ensemble(5, 1)
+        b = nengo.Ensemble(5, 1)
+        nengo.Connection(a, b)
+
+    model = Model()
+    model.decode_neurons = NoisyDecodeNeurons(10, noise_exp=5)
+    with pytest.warns(UserWarning, match="[Nn]oise.*exceeds.*upper"):
+        with Simulator(net, model=model):
+            pass
+
+    model = Model()
+    model.decode_neurons = NoisyDecodeNeurons(10, noise_exp=-7)
+    with pytest.warns(UserWarning, match="[Nn]oise.*below.*lower"):
+        with Simulator(net, model=model):
+            pass
