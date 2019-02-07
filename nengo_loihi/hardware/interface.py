@@ -197,10 +197,7 @@ class HardwareInterface(object):
 
         self._chip2host_sent_steps += 1
 
-    def chip2host(self, probes_receivers=None):
-        if probes_receivers is None:
-            probes_receivers = {}
-
+    def chip2host(self, probes_receivers):
         return (self._chip2host_snips(probes_receivers) if self.use_snips else
                 self._chip2host_monitor(probes_receivers))
 

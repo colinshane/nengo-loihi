@@ -81,10 +81,7 @@ class EmulatorInterface(object):
         self.synapses = None
         self.axons = None
 
-    def chip2host(self, probes_receivers=None):
-        if probes_receivers is None:
-            probes_receivers = OrderedDict()
-
+    def chip2host(self, probes_receivers):
         increment = 0
         for probe, receiver in probes_receivers.items():
             inc = self.probes.send(probe, self._chip2host_sent_steps, receiver)
