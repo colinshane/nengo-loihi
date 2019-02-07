@@ -590,16 +590,6 @@ class Synapse(object):
         assert len(weights) == len(indices)
         self.indices = indices
 
-    def set_diagonal_weights(self, diag):
-        weights = diag.ravel()
-        indices = list(range(len(weights)))
-        self._set_weights_indices(weights, indices)
-        assert len(self.weights) == self.n_axons
-
-        idxBits = self.idx_bits()
-        self.format(compression=3, idxBits=idxBits, fanoutType=1,
-                    numSynapses=63, wgtBits=7)
-
     def set_full_weights(self, weights):
         self._set_weights_indices(weights)
         assert len(self.weights) == self.n_axons, (
