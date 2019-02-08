@@ -18,7 +18,7 @@ def test_intercept_limit(passed_intercepts, rng):
     ens = nengo.Ensemble(10000, 1,
                          intercepts=passed_intercepts,
                          add_to_container=False)
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="intercept limit"):
         _, _, _, intercepts = get_gain_bias(ens, rng, model.intercept_limit)
     assert np.all(intercepts <= model.intercept_limit)
 

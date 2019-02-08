@@ -41,7 +41,7 @@ def test_warn_on_future_version(monkeypatch):
 
     monkeypatch.setattr(hardware_interface, 'nxsdk', mock)
     monkeypatch.setattr(hardware_interface, 'assert_nxsdk', lambda: True)
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="version"):
         hardware_interface.HardwareInterface.check_nxsdk_version()
 
 

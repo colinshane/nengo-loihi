@@ -183,10 +183,9 @@ def test_all_run_steps(Simulator):
     assert sim._run_steps.__name__ == "run_steps"
 
     # 1b. precompute=True, no host, no host_pre
-    with pytest.warns(UserWarning) as record:
+    with pytest.warns(UserWarning, match="No precomputable objects"):
         with Simulator(net, precompute=True) as sim:
             sim.run(0.001)
-    assert any("No precomputable objects" in r.message.args[0] for r in record)
     assert inspect.ismethod(sim._run_steps)
     assert sim._run_steps.__name__ == "run_steps"
 
@@ -233,10 +232,9 @@ def test_all_run_steps(Simulator):
     assert sim._run_steps.__name__.endswith("_bidirectional_with_host")
 
     # 4b. precompute=True, host, no host_pre
-    with pytest.warns(UserWarning) as record:
+    with pytest.warns(UserWarning, match="No precomputable objects"):
         with Simulator(net, precompute=True) as sim:
             sim.run(0.001)
-    assert any("No precomputable objects" in r.message.args[0] for r in record)
     assert sim._run_steps.__name__.endswith("_precomputed_host_only")
 
 
@@ -249,13 +247,11 @@ def test_no_precomputable(Simulator):
         nengo.Connection(active_ens.neurons, out)
         out_p = nengo.Probe(out)
 
-    with pytest.warns(UserWarning) as record:
+    with pytest.warns(UserWarning, match="No precomputable objects"):
         with Simulator(net, precompute=True) as sim:
             sim.run(0.01)
 
     assert sim._run_steps.__name__.endswith("precomputed_host_only")
-    # Should warn that no objects are precomputable
-    assert any("No precomputable objects" in r.message.args[0] for r in record)
     # But still mark the sim as precomputable for speed reasons, because
     # there are no inputs that depend on outputs in this case
     assert sim.precompute
@@ -311,25 +307,23 @@ def test_tau_s_warning(Simulator):
                          synapse=0.001,
                          solver=nengo.solvers.LstsqL2(weights=True))
 
-    with pytest.warns(UserWarning) as record:
-        with Simulator(net):
-            pass
     # The 0.001 synapse is applied first due to splitting rules putting
     # the stim -> ens connection later than the ens -> ens connection
-    assert any(rec.message.args[0] == (
-        "tau_s is currently 0.001, which is smaller than 0.005. "
-        "Overwriting tau_s with 0.005.") for rec in record)
+    with pytest.warns(UserWarning,
+                      match=r"tau_s is currently 0\.001, which is smaller than"
+                      " 0\.005\. Overwriting tau_s with 0.005\."):
+        with Simulator(net):
+            pass
 
     with net:
         nengo.Connection(ens, ens,
                          synapse=0.1,
                          solver=nengo.solvers.LstsqL2(weights=True))
-    with pytest.warns(UserWarning) as record:
+    with pytest.warns(UserWarning,
+                      match=r"tau_s is already set to 0\.1, which is larger "
+                      "than 0\.005\. Using 0\.1\."):
         with Simulator(net):
             pass
-    assert any(rec.message.args[0] == (
-        "tau_s is already set to 0.1, which is larger than 0.005. Using 0.1."
-    ) for rec in record)
 
 
 def test_interface(Simulator, allclose):

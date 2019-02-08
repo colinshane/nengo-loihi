@@ -29,9 +29,9 @@ def test_strict_mode(strict, monkeypatch):
     assert emu.strict == strict
 
     if strict:
-        check = pytest.raises(SimulationError)
+        check = pytest.raises(SimulationError, match="Error in emulator")
     else:
-        check = pytest.warns(UserWarning)
+        check = pytest.warns(UserWarning, match="Error in emulator")
 
     with check:
         emu.compartment.error("Error in emulator")
@@ -82,7 +82,7 @@ def test_uv_overflow(n_axons, plt, allclose, monkeypatch):
     assert EmulatorInterface.strict  # Tests should be run in strict mode
     monkeypatch.setattr(EmulatorInterface, "strict", False)
     with EmulatorInterface(model) as emu:
-        with pytest.warns(UserWarning):
+        with pytest.warns(UserWarning, match="[Oo]verflow"):
             emu.run_steps(nt)
         emu_u = emu.get_probe_output(probe_u)
         emu_v = emu.get_probe_output(probe_v)
