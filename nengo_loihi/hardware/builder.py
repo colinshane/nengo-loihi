@@ -314,44 +314,56 @@ def build_synapse(n2core, core, block, synapse, cx_idxs):  # noqa C901
 
         weight_idx = int(synapse.axon_weight_idx(axon_idx))
         cx_base = synapse.axon_cx_base(axon_idx)
-
-        if weight_idx not in synapse_map:
-            weights = synapse.weights[weight_idx]
-            indices = synapse.indices[weight_idx]
-            weights = weights // synapse.synapse_fmt.scale
-            assert weights.ndim == 2
-            assert weights.shape == indices.shape
-            assert np.all(weights <= 255) and np.all(weights >= -256), str(
-                weights)
-            n_populations, n_cxs = weights.shape
-
-            synapse_map[weight_idx] = (
-                total_synapse_ptr, n_populations, n_cxs)
-
-            for p in range(n_populations):
-                for q in range(n_cxs):
-                    cx_idx = cx_idxs[indices[p, q]]
-                    n2core.synapses[total_synapse_ptr].configure(
-                        CIdx=cx_idx,
-                        Wgt=weights[p, q],
-                        synFmtId=synapse_fmt_idx,
-                        LrnEn=int(synapse.learning),
-                    )
-                    target_cxs.add(cx_idx)
-                    total_synapse_ptr += 1
-
-        synapse_ptr, n_populations, n_cxs = synapse_map[weight_idx]
-        assert n_populations <= 2**atom_bits
-
         if cx_base is None:
-            # this is a dummy axon with no weights, so set n_cxs to 0
-            synapse_ptr = 0
-            n_cxs = 0
+            # dummy axon, will use weights of all zeros
+            weight_idx = None
             cx_base = 0
         else:
             cx_base = int(cx_base)
 
         assert cx_base <= 256, "Currently limited by hardware"
+
+        if weight_idx not in synapse_map:
+            if weight_idx is None:
+                # In this case, use a set of dummy zero weights
+                n_populations = 2**atom_bits  # use max number of populations
+                n_cxs = 1
+                synapse_map[weight_idx] = (
+                    total_synapse_ptr, n_populations, n_cxs)
+
+                for p in range(n_populations):
+                    for q in range(n_cxs):
+                        n2core.synapses[total_synapse_ptr].configure(
+                            CIdx=0, Wgt=0, synFmtId=synapse_fmt_idx, LrnEn=0)
+                        total_synapse_ptr += 1
+            else:
+                weights = synapse.weights[weight_idx]
+                indices = synapse.indices[weight_idx]
+                weights = weights // synapse.synapse_fmt.scale
+                assert weights.ndim == 2
+                assert weights.shape == indices.shape
+                assert np.all(weights <= 255) and np.all(weights >= -256), str(
+                    weights)
+                n_populations, n_cxs = weights.shape
+
+                synapse_map[weight_idx] = (
+                    total_synapse_ptr, n_populations, n_cxs)
+
+                for p in range(n_populations):
+                    for q in range(n_cxs):
+                        cx_idx = cx_idxs[indices[p, q]]
+                        n2core.synapses[total_synapse_ptr].configure(
+                            CIdx=cx_idx,
+                            Wgt=weights[p, q],
+                            synFmtId=synapse_fmt_idx,
+                            LrnEn=int(synapse.learning),
+                        )
+                        target_cxs.add(cx_idx)
+                        total_synapse_ptr += 1
+
+        synapse_ptr, n_populations, n_cxs = synapse_map[weight_idx]
+        assert n_populations <= 2**atom_bits
+
         n2core.synapseMap[axon_id].synapsePtr = synapse_ptr
         n2core.synapseMap[axon_id].synapseLen = n_cxs
         if synapse.pop_type == 0:  # discrete
