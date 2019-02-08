@@ -1,7 +1,9 @@
 import nengo
+from nengo.exceptions import BuildError
 import numpy as np
 import pytest
 
+import nengo_loihi.builder.probe
 from nengo_loihi.builder import Model
 from nengo_loihi.builder.ensemble import get_gain_bias
 
@@ -44,3 +46,16 @@ def test_build_callback(Simulator):
 def test_builder_strings():
     model = Model(label="myModel")
     assert str(model) == "Model(myModel)"
+
+
+def test_probemap_bad_type_error(Simulator, monkeypatch):
+    with nengo.Network() as net:
+        a = nengo.Ensemble(2, 1)
+        nengo.Probe(a)
+
+    # need to monkeypatch it so Ensemble is not in probemap, since all types
+    # not in probemap are caught in validation when creating the probe
+    monkeypatch.setattr(nengo_loihi.builder.probe, 'probemap', {})
+    with pytest.raises(BuildError, match="not probeable"):
+        with Simulator(net):
+            pass
