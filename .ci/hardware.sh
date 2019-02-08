@@ -20,6 +20,7 @@ elif [[ "$COMMAND" == "script" ]]; then
         cd /tmp/nengo-loihi-$TRAVIS_JOB_NUMBER
         conda create -y -n travis-ci-$TRAVIS_JOB_NUMBER python=3.5.2 scipy
         source activate travis-ci-$TRAVIS_JOB_NUMBER
+        pip install git+https://github.com/nengo/nengo.git
         pip install -e .[tests]
         pip install ~/travis-ci/nxsdk-0.7.5.tar.gz
         SLURM=1 coverage run -m pytest --target loihi --no-hang -v --durations 50 --color=yes && \
