@@ -39,3 +39,8 @@ def test_build_callback(Simulator):
 
     for obj in (a, b, c):
         assert obj in objs, "%s not in objs" % obj
+
+
+def test_builder_strings():
+    model = Model(label="myModel")
+    assert str(model) == "Model(myModel)"
