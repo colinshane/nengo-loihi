@@ -446,8 +446,7 @@ def build_axons(n2core, core, block, all_axons):  # noqa C901
     axon_id = 0
     axon_map = {}
     for cx_id, axons in axons_by_cx:
-        if len(axons) == 0:
-            continue
+        assert len(axons) > 0
 
         # axon -> (cx, atom, type, tchip_id, tcore_id, taxon_id)
         assert all(axon[0] == cx_id for axon in axons)
