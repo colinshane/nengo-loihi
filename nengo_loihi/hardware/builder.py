@@ -119,12 +119,15 @@ def build_core(n2core, core):  # noqa: C901
     numStdp = 0
     if firstLearningIndex is not None:
         for synapse in core.iterate_synapses():
+            assert synapse.learning, (
+                "Currently, all synapses on core are learning or none are")
+
             axons = np.array(core.synapse_axons[synapse])
             if synapse.learning:
                 numStdp += len(axons)
                 assert np.all(axons >= firstLearningIndex)
-            else:
-                assert np.all(axons < firstLearningIndex)
+            # else:
+            #     assert np.all(axons < firstLearningIndex)
 
     if numStdp > 0:
         logger.debug("- Configuring PES learning")
