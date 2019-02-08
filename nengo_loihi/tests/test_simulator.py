@@ -311,7 +311,7 @@ def test_tau_s_warning(Simulator):
     # the stim -> ens connection later than the ens -> ens connection
     with pytest.warns(UserWarning,
                       match=r"tau_s is currently 0\.001, which is smaller than"
-                      " 0\.005\. Overwriting tau_s with 0.005\."):
+                      r" 0\.005\. Overwriting tau_s with 0.005\."):
         with Simulator(net):
             pass
 
@@ -321,7 +321,7 @@ def test_tau_s_warning(Simulator):
                          solver=nengo.solvers.LstsqL2(weights=True))
     with pytest.warns(UserWarning,
                       match=r"tau_s is already set to 0\.1, which is larger "
-                      "than 0\.005\. Using 0\.1\."):
+                      r"than 0\.005\. Using 0\.1\."):
         with Simulator(net):
             pass
 
