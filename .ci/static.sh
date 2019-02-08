@@ -11,6 +11,9 @@ source .ci/common.sh
 NAME=$0
 COMMAND=$1
 
+CODESPELL_TARGETS=".ci/ docs/ nengo_loihi/
+    CHANGES.rst conftest.py LICENSE.rst MANIFEST.in README.rst setup.py"
+
 if [[ "$COMMAND" == "install" ]]; then
     # pip installs a more recent entrypoints version than conda
     exe pip install entrypoints
@@ -24,10 +27,10 @@ elif [[ "$COMMAND" == "script" ]]; then
         --TemplateExporter.exclude_input_prompt=True \
         -- **/*.ipynb
     sed -i -e 's/# $/#/g' -e '/get_ipython()/d' -- docs/**/*.py
-    exe flake8 nengo_loihi
+    exe flake8 nengo_loihi conftest.py setup.py
     exe flake8 --ignore=E226,E703,W291,W391,W503 docs
     exe pylint docs nengo_loihi
-    exe codespell -q 3 --skip="./build,./docs/_build,*-checkpoint.ipynb"
+    exe codespell -q 3 "$CODESPELL_TARGETS" --skip="*-checkpoint.ipynb"
     exe shellcheck -e SC2087 .ci/*.sh
     # undo single-branch cloning
     git config --replace-all remote.origin.fetch +refs/heads/*:refs/remotes/origin/*
