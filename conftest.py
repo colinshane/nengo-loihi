@@ -23,8 +23,6 @@ def pytest_configure(config):
     if config.getoption('seed_offset'):
         TestConfig.test_seed = config.getoption('seed_offset')[0]
     nengo_loihi.set_defaults()
-    # Only log warnings from Nengo
-    logging.getLogger("nengo").setLevel(logging.WARNING)
 
 
 def pytest_addoption(parser):
