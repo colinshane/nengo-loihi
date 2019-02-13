@@ -70,8 +70,8 @@ def build_decode_neuron_encoders(model, ens, kind='decode_neuron_encoders'):
 
 
 @Builder.register(Solver)
-def build_solver(model, solver, conn, rng):
-    return build_decoders(model, conn, rng)
+def build_solver(model, solver, conn, rng, transform):
+    return build_decoders(model, conn, rng, transform)
 
 
 Builder.register(NoSolver)(build_no_solver)
@@ -79,7 +79,9 @@ Builder.register(NoSolver)(build_no_solver)
 
 @Builder.register(Connection)  # noqa: C901
 def build_connection(model, conn):
-    if isinstance(conn.transform, nengo.Convolution):
+    if not nengo_transforms:
+        pass
+    elif isinstance(conn.transform, nengo.Convolution):
         # TODO: integrate these into the same function
         conv.build_conv2d_connection(model, conn)
         return
@@ -102,7 +104,11 @@ def build_connection(model, conn):
     post_slice = conn.post_slice
 
     # Sample transform if given a distribution
-    transform = conn.transform.sample(rng=rng)
+    if nengo_transforms:
+        transform = conn.transform.sample(rng=rng)
+    else:
+        transform = get_samples(
+            conn.transform, conn.size_out, d=conn.size_mid, rng=rng)
 
     tau_s = 0.0  # `synapse is None` gets mapped to `tau_s = 0.0`
     if isinstance(conn.synapse, nengo.synapses.Lowpass):

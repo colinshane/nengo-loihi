@@ -9,6 +9,7 @@ from nengo.transforms import ChannelShape
 import numpy as np
 
 from nengo_loihi.block import Axon, LoihiBlock, Synapse
+from nengo_loihi.compat import nengo_transforms
 from nengo_loihi.inputs import ChipReceiveNeurons, LoihiInput
 
 
@@ -50,7 +51,7 @@ def split_transform(transform, in_slice=None, out_slice=None):
         kernel = transform.init[:, :, a_slice, b_slice]
         rows, cols = transform.input_shape.spatial_shape
         nc = kernel.shape[2]
-        input_shape = ChannelShape(
+        input_shape = nengo_transforms.ChannelShape(
             (rows, cols, nc) if transform.channels_last else (nc, rows, cols),
             channels_last=transform.channels_last)
         return nengo.Convolution(
