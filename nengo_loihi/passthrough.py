@@ -4,8 +4,10 @@ from nengo import Connection, Lowpass, Node
 from nengo.connection import LearningRule
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError, NengoException
-from nengo.transforms import Dense
 import numpy as np
+
+
+from nengo_loihi.compat import nengo_transforms
 
 
 def is_passthrough(obj):
@@ -70,7 +72,7 @@ class Cluster(object):
         mid_t = np.eye(node.size_in)[slices[1], slices[0]]
 
         for i, t in enumerate(transforms):
-            if isinstance(t, Dense):
+            if isinstance(t, nengo_transforms.Dense):
                 if not isinstance(t.init, np.ndarray):
                     raise NotImplementedError(
                         "Mergeable transforms must be specified as np arrays; "
@@ -92,7 +94,7 @@ class Cluster(object):
             else:
                 transform = np.dot(t, transform)
 
-        return Dense(transform.shape, init=transform)
+        return nengo_transforms.Dense(transform.shape, init=transform)
 
     def merge_synapses(self, syn1, syn2):
         """Return an equivalent synapse for the two provided synapses."""
@@ -130,8 +132,10 @@ class Cluster(object):
             # this Node has a Probe, so we need to keep it around and create
             # a new Connection that goes to it, as the original Connections
             # will get removed
-            yield (slice(None), Dense((obj.size_out, obj.size_out), 1.0),
-                   None, obj)
+            yield (slice(None),
+                   nengo_transforms.Dense((obj.size_out, obj.size_out), 1.0),
+                   None,
+                   obj)
 
         for c in outputs[obj]:
             if c.learning_rule_type is not None:

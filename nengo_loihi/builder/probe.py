@@ -3,11 +3,11 @@ from nengo import Ensemble, Connection, Node
 from nengo.connection import LearningRule
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError
-from nengo.transforms import Dense
 import numpy as np
 
 from nengo_loihi.block import Probe
 from nengo_loihi.builder.builder import Builder
+from nengo_loihi.compat import nengo_transforms
 
 
 def conn_probe(model, nengo_probe):
@@ -34,7 +34,7 @@ def conn_probe(model, nengo_probe):
             else:
                 input_dim = len(func[0])
         transform = kwargs['transform']
-        assert isinstance(transform, Dense)
+        assert isinstance(transform, nengo_transforms.Dense)
         transform = np.asarray(transform.init, dtype=np.float64)
         if transform.ndim <= 1:
             output_dim = input_dim
@@ -89,7 +89,7 @@ def signal_probe(model, key, probe):
         if kwargs['function'] is not None:
             raise BuildError("Functions not supported for signal probe")
 
-        assert isinstance(kwargs["transform"], Dense)
+        assert isinstance(kwargs["transform"], nengo_transforms.Dense)
         rng = np.random.RandomState(kwargs["seed"])
         weights = kwargs['transform'].sample(rng=rng).T / model.dt
 

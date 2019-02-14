@@ -8,9 +8,9 @@ from nengo.base import ObjView
 from nengo.connection import LearningRule
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError
-from nengo.transforms import Convolution
 import numpy as np
 
+from nengo_loihi.compat import nengo_transforms
 from nengo_loihi.inputs import (
     ChipReceiveNode,
     ChipReceiveNeurons,
@@ -321,7 +321,7 @@ def split_host_to_chip(networks, conn):
     ens = networks.node_neurons.get_ensemble(dim)
     networks.add(ens, "host")
 
-    if isinstance(conn.transform, Convolution):
+    if isinstance(conn.transform, nengo_transforms.Convolution):
         raise BuildError(
             "Conv2D transforms not supported for off-chip to "
             "on-chip connections where `pre` is not a Neurons object.")

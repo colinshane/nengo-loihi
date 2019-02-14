@@ -5,7 +5,6 @@ import nengo
 from nengo.builder.connection import BuiltConnection
 from nengo.ensemble import Neurons
 from nengo.exceptions import ValidationError
-from nengo.transforms import ChannelShape
 import numpy as np
 
 from nengo_loihi.block import Axon, LoihiBlock, Synapse
@@ -38,7 +37,7 @@ def split_transform(transform, in_slice=None, out_slice=None):
     a_slice = slice(None)
     b_slice = slice(None)
 
-    if isinstance(transform, nengo.Convolution):
+    if isinstance(transform, nengo_transforms.Convolution):
         if in_slice is not None:
             assert in_slice.channel_slice_only()
             a_slice = in_slice.channel_slice
@@ -54,7 +53,7 @@ def split_transform(transform, in_slice=None, out_slice=None):
         input_shape = nengo_transforms.ChannelShape(
             (rows, cols, nc) if transform.channels_last else (nc, rows, cols),
             channels_last=transform.channels_last)
-        return nengo.Convolution(
+        return nengo_transforms.Convolution(
             kernel.shape[3], input_shape, strides=transform.strides,
             channels_last=transform.channels_last, padding=transform.padding,
             kernel_size=transform.kernel_size, init=kernel)
@@ -107,6 +106,12 @@ def pixel_idxs(shape):
 
 
 def build_conv2d_connection(model, conn):
+    if nengo_transforms is None:
+        # It should not be possible to reach this, because this function is
+        # only called for a Convolution transform, which can exist only if
+        # nengo_transforms exists.
+        raise NotImplementedError("Convolution requires newer Nengo")
+
     if conn.transform.dimensions != 2:
         raise NotImplementedError("nengo-loihi only supports 2D convolution")
     if conn.transform.padding != "valid":
@@ -131,7 +136,7 @@ def build_conv2d_connection(model, conn):
     assert isinstance(conn.pre_obj, (Neurons, ChipReceiveNeurons))
     assert conn.pre_slice == slice(None)
 
-    assert isinstance(conn.transform, nengo.Convolution)
+    assert isinstance(conn.transform, nengo_transforms.Convolution)
 
     weights = conn.transform.sample(rng=rng)
     input_shape = conn.transform.input_shape
