@@ -702,24 +702,7 @@ class Simulator:
             raise SimulatorClosed("Simulator cannot run because it is closed.")
 
         self._make_run_steps()
-        try:
-            self._run_steps(steps)
-        except Exception:
-            if "loihi" in self.sims and self.sims["loihi"].use_snips:
-                # Need to write to board, otherwise it will wait indefinitely
-                h2c = self.sims["loihi"].nengo_io_h2c
-                c2h = self.sims["loihi"].nengo_io_c2h
-
-                print(traceback.format_exc())
-                print("\nAttempting to end simulation...")
-
-                for _ in range(steps):
-                    h2c.write(h2c.numElements, [0] * h2c.numElements)
-                    c2h.read(c2h.numElements)
-                self.sims["loihi"].wait_for_completion()
-                self.sims["loihi"].n2board.nxDriver.stopExecution()
-                self.sims["loihi"].n2board.nxDriver.stopDriver()
-            raise
+        self._run_steps(steps)
 
         self._n_steps += steps
         logger.info("Finished running for %d steps", steps)
