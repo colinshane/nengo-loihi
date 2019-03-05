@@ -170,6 +170,9 @@ def build_conv2d_connection(model, conn):
     weights, indices, axon_to_weight_map, cx_bases = conv2d_loihi_weights(
         new_transform)
 
+    if all(w.shape[0] == 1 for w in weights):
+        pop_type = 0  # can use discrete spikes
+
     synapse = Synapse(np.prod(input_shape.spatial_shape),
                       label="conv2d_weights")
     synapse.set_population_weights(

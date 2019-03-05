@@ -624,12 +624,15 @@ class Synapse:
             indices,
             axon_to_weight_map,
             cx_bases,
-            pop_type=None
+            pop_type=32,
     ):
         self._set_weights_indices(weights, indices)
         self.axon_to_weight_map = axon_to_weight_map
         self.axon_cx_bases = cx_bases
-        self.pop_type = 16 if pop_type is None else pop_type
+        self.pop_type = pop_type
+        if self.pop_type == 0:
+            assert all(w.shape[0] == 1 for w in self.weights), (
+                "More than one population not allowed with discrete spikes")
 
         idxBits = self.idx_bits()
         self.format(compression=0,
