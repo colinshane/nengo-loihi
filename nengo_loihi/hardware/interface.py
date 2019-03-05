@@ -272,9 +272,9 @@ class HardwareInterface:
                 if self.is_connected():
                     break
             except Exception as e:
-                logger.info("Connection error: %s", e)
+                logger.warn("Connection error: %s", e)
                 time.sleep(1)
-                logger.info("Retrying, attempt %d", i + 1)
+                logger.warn("Retrying, attempt %d", i + 1)
         else:
             raise SimulationError("Could not connect to the board")
 
