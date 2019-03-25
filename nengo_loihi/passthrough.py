@@ -1,14 +1,18 @@
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 import warnings
 
 from nengo import Connection, Lowpass, Node
+from nengo.base import ObjView
 from nengo.connection import LearningRule
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError, NengoException
 import numpy as np
 
-
 from nengo_loihi.compat import nengo_transforms, transform_array
+
+PassthroughDirective = namedtuple(
+    "PassthroughDirective",
+    ["removed_passthroughs", "removed_connections", "added_connections"])
 
 
 def is_passthrough(obj):
@@ -16,7 +20,9 @@ def is_passthrough(obj):
 
 
 def base_obj(obj):
-    """Returns the Ensemble or Node underlying an object"""
+    """Returns the object underlying some view or neurons."""
+    if isinstance(obj, ObjView):
+        obj = obj.obj
     if isinstance(obj, Neurons):
         return obj.ensemble
     return obj
@@ -210,7 +216,7 @@ class Cluster:
                     )
 
 
-def find_clusters(net, offchip):
+def find_clusters(net, ignore):
     """Create the Clusters for a given nengo Network."""
 
     # find which objects have Probes, as we need to make sure to keep them
@@ -218,17 +224,17 @@ def find_clusters(net, offchip):
 
     clusters = OrderedDict()  # mapping from object to its Cluster
     for c in net.all_connections:
-        base_pre = base_obj(c.pre_obj)
-        base_post = base_obj(c.post_obj)
+        base_pre = base_obj(c.pre)
+        base_post = base_obj(c.post)
 
-        pass_pre = is_passthrough(c.pre_obj) and c.pre_obj not in offchip
+        pass_pre = is_passthrough(c.pre_obj) and c.pre_obj not in ignore
         if pass_pre and c.pre_obj not in clusters:
             # add new objects to their own initial Cluster
             clusters[c.pre_obj] = Cluster(c.pre_obj)
             if c.pre_obj in probed_objs:
                 clusters[c.pre_obj].probed_objs.add(c.pre_obj)
 
-        pass_post = is_passthrough(c.post_obj) and c.post_obj not in offchip
+        pass_post = is_passthrough(c.post_obj) and c.post_obj not in ignore
         if pass_post and c.post_obj not in clusters:
             # add new objects to their own initial Cluster
             clusters[c.post_obj] = Cluster(c.post_obj)
@@ -254,7 +260,7 @@ def find_clusters(net, offchip):
     return clusters
 
 
-def convert_passthroughs(network, offchip):
+def convert_passthroughs(network, ignore):
     """Create a set of Connections that could replace the passthrough Nodes.
 
     This does not actually modify the Network, but instead returns the
@@ -262,11 +268,12 @@ def convert_passthroughs(network, offchip):
     and the Connections that should be added to replace the Nodes and
     Connections.
 
-    The parameter offchip provides a list of objects that should be considered
-    to be offchip. The system will only remove passthrough Nodes that go
-    between two onchip objects.
+    The parameter ignore provides a list of objects (i.e., ensembles and nodes)
+    that should not be considered by the passthrough removal process.
+    The system will only remove passthrough Nodes where neither pre nor post
+    are ignored.
     """
-    clusters = find_clusters(network, offchip=offchip)
+    clusters = find_clusters(network, ignore=ignore)
 
     removed_passthroughs = set()
     removed_connections = set()
@@ -278,11 +285,11 @@ def convert_passthroughs(network, offchip):
             onchip_input = False
             onchip_output = False
             for c in cluster.conns_in:
-                if base_obj(c.pre_obj) not in offchip:
+                if base_obj(c.pre) not in ignore:
                     onchip_input = True
                     break
             for c in cluster.conns_out:
-                if base_obj(c.post_obj) not in offchip:
+                if base_obj(c.post) not in ignore:
                     onchip_output = True
                     break
             has_input = len(cluster.conns_in) > 0
@@ -300,4 +307,6 @@ def convert_passthroughs(network, offchip):
                                            | cluster.conns_mid
                                            | cluster.conns_out)
                 added_connections.update(new_conns)
-    return removed_passthroughs, removed_connections, added_connections
+
+    return PassthroughDirective(
+        removed_passthroughs, removed_connections, added_connections)

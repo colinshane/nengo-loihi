@@ -1,5 +1,8 @@
+import copy
+import logging
+
 import nengo
-from nengo import Ensemble, Connection, Node
+from nengo import Ensemble, Connection, Node, Probe as NengoProbe
 from nengo.builder.connection import (
     build_no_solver as _build_no_solver,
     BuiltConnection,
@@ -7,19 +10,276 @@ from nengo.builder.connection import (
     get_targets,
     multiply,
 )
+from nengo.connection import LearningRule
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError, ValidationError
 from nengo.solvers import NoSolver, Solver
 import numpy as np
 
-from nengo_loihi import conv
 from nengo_loihi.block import Axon, LoihiBlock, Probe, Synapse
 from nengo_loihi.builder.builder import Builder
-from nengo_loihi.builder.inputs import ChipReceiveNeurons
+from nengo_loihi.builder.inputs import (
+    ChipReceiveNode,
+    ChipReceiveNeurons,
+    HostSendNode,
+    HostReceiveNode,
+    PESModulatoryTarget,
+)
 from nengo_loihi.compat import (
     nengo_transforms, sample_transform, conn_solver)
+from nengo_loihi.conv import conv2d_loihi_weights, pixel_idxs, channel_idxs
 from nengo_loihi.inputs import LoihiInput
 from nengo_loihi.neurons import loihi_rates
+from nengo_loihi.passthrough import base_obj
+
+logger = logging.getLogger(__name__)
+
+
+def _inherit_seed(dest_model, dest_obj, src_model, src_obj):
+    dest_model.seeded[dest_obj] = src_model.seeded[src_obj]
+    dest_model.seeds[dest_obj] = src_model.seeds[src_obj]
+
+
+@Builder.register(Connection)
+def build_connection(model, conn):
+    is_pre_chip = model.splitter_directive.on_chip(base_obj(conn.pre))
+
+    if isinstance(conn.post_obj, LearningRule):
+        assert not is_pre_chip
+        return build_host_to_learning_rule(model, conn)
+
+    is_post_chip = model.splitter_directive.on_chip(base_obj(conn.post))
+
+    if is_pre_chip and is_post_chip:
+        build_chip_connection(model, conn)
+
+    elif not is_pre_chip and is_post_chip:
+        if isinstance(conn.pre_obj, Neurons):
+            build_host_neurons_to_chip(model, conn)
+        else:
+            build_host_to_chip(model, conn)
+
+    elif is_pre_chip and not is_post_chip:
+        build_chip_to_host(model, conn)
+
+    else:
+        assert is_pre_chip == is_post_chip
+        nengo_model = model.delegate(base_obj(conn.pre))
+        assert nengo_model is model.delegate(base_obj(conn.post))
+        _inherit_seed(nengo_model, conn, model, conn)
+        nengo_model.build(conn)
+
+
+def build_host_neurons_to_chip(model, conn):
+    """Send spikes over and do the rest of the connection on-chip"""
+
+    assert not isinstance(conn.post, LearningRule)
+    dim = conn.size_in
+    nengo_model = model.delegate(base_obj(conn.pre))
+
+    logger.debug("Creating ChipReceiveNeurons for %s", conn)
+    receive = ChipReceiveNeurons(
+        dim,
+        neuron_type=conn.pre_obj.ensemble.neuron_type,
+        label=None if conn.label is None else "%s_neurons" % conn.label,
+        add_to_container=False,
+    )
+    _inherit_seed(model, receive, model, conn)
+    model.builder.build(model, receive)
+
+    receive2post = Connection(
+        receive,
+        conn.post,
+        transform=conn.transform,
+        synapse=conn.synapse,
+        label=None if conn.label is None else "%s_chip" % conn.label,
+        add_to_container=False,
+    )
+    _inherit_seed(model, receive2post, model, conn)
+    build_chip_connection(model, receive2post)
+
+    logger.debug("Creating HostSendNode for %s", conn)
+    send = HostSendNode(
+        dim,
+        label=None if conn.label is None else "%s_send" % conn.label,
+        add_to_container=False,
+    )
+    nengo_model.build(send)
+
+    pre2send = Connection(
+        conn.pre,
+        send,
+        synapse=None,
+        label=None if conn.label is None else "%s_host" % conn.label,
+        add_to_container=False,
+    )
+    model.host2chip_senders[send] = receive
+    _inherit_seed(nengo_model, pre2send, model, conn)
+    nengo_model.build(pre2send)
+
+
+def build_host_to_chip(model, conn):
+    rng = np.random.RandomState(model.seeds[conn])
+    dim = conn.size_out
+    nengo_model = model.delegate(base_obj(conn.pre))
+
+    logger.debug("Creating ChipReceiveNode for %s", conn)
+    receive = ChipReceiveNode(
+        dim * 2,
+        size_out=dim,
+        label=None if conn.label is None else "%s_node" % conn.label,
+        add_to_container=False,
+    )
+    model.builder.build(model, receive)
+
+    receive2post = Connection(
+        receive,
+        conn.post,
+        synapse=model.decode_tau,
+        label=None if conn.label is None else "%s_chip" % conn.label,
+        add_to_container=False,
+    )
+    _inherit_seed(model, receive2post, model, conn)
+    build_chip_connection(model, receive2post)
+
+    logger.debug("Creating DecodeNeuron ensemble for %s", conn)
+    ens = model.node_neurons.get_ensemble(dim)
+    ens.label = None if conn.label is None else "%s_ens" % conn.label
+    _inherit_seed(nengo_model, ens, model, conn)
+    nengo_model.build(ens)
+
+    if nengo_transforms is not None and isinstance(
+            conn.transform, nengo_transforms.Convolution):
+        raise BuildError(
+            "Conv2D transforms not supported for off-chip to "
+            "on-chip connections where `pre` is not a Neurons object.")
+
+    # Scale the input spikes based on the radius of the target ensemble
+    weights = sample_transform(conn, rng=rng)
+
+    if isinstance(conn.post_obj, Ensemble):
+        weights = weights / conn.post_obj.radius
+
+    if nengo_transforms is None:
+        transform = weights
+    else:
+        # copy the Transform information, setting `init` to the sampled weights
+        transform = copy.copy(conn.transform)
+        type(transform).init.data[transform] = weights
+
+    pre2ens = Connection(
+        conn.pre,
+        ens,
+        function=conn.function,
+        solver=conn.solver,
+        eval_points=conn.eval_points,
+        scale_eval_points=conn.scale_eval_points,
+        synapse=conn.synapse,
+        transform=transform,
+        label=None if conn.label is None else "%s_enc" % conn.label,
+        add_to_container=False,
+    )
+    _inherit_seed(nengo_model, pre2ens, model, conn)
+    nengo_model.build(pre2ens)
+
+    logger.debug("Creating HostSendNode for %s", conn)
+    send = HostSendNode(
+        dim * 2,
+        label=None if conn.label is None else "%s_send" % conn.label,
+        add_to_container=False,
+    )
+    nengo_model.build(send)
+
+    ensneurons2send = Connection(
+        ens.neurons,
+        send,
+        synapse=None,
+        label=None if conn.label is None else "%s_host" % conn.label,
+        add_to_container=False,
+    )
+    _inherit_seed(nengo_model, ensneurons2send, model, conn)
+    model.host2chip_senders[send] = receive
+    nengo_model.build(ensneurons2send)
+
+
+def build_chip_to_host(model, conn):
+    rng = np.random.RandomState(model.seeds[conn])
+    dim = conn.size_out
+    nengo_model = model.delegate(base_obj(conn.post))
+
+    logger.debug("Creating HostReceiveNode for %s", conn)
+    receive = HostReceiveNode(
+        dim,
+        label=None if conn.label is None else "%s_receive" % conn.label,
+        add_to_container=False,
+    )
+    nengo_model.build(receive)
+
+    receive2post = Connection(
+        receive,
+        conn.post,
+        synapse=conn.synapse,
+        label=None if conn.label is None else "%s_host" % conn.label,
+        add_to_container=False,
+    )
+    _inherit_seed(nengo_model, receive2post, model, conn)
+    nengo_model.build(receive2post)
+
+    logger.debug("Creating Probe for %s", conn)
+    transform = sample_transform(conn, rng=rng)
+
+    probe = NengoProbe(conn.pre,
+                       synapse=None,
+                       solver=conn.solver,
+                       add_to_container=False)
+    model.chip2host_params[probe] = dict(
+        learning_rule_type=conn.learning_rule_type,
+        function=conn.function,
+        eval_points=conn.eval_points,
+        scale_eval_points=conn.scale_eval_points,
+        transform=transform,
+        label=None if conn.label is None else "%s_probe" % conn.label,
+    )
+    model.chip2host_receivers[probe] = receive
+    _inherit_seed(model, probe, model, conn)
+    model.builder.build(model, probe)
+
+    if conn.learning_rule_type is not None:
+        if not isinstance(conn.pre_obj, Ensemble):
+            raise NotImplementedError(
+                "Learning rule presynaptic object must be an Ensemble "
+                "(got %r)" % type(conn.pre_obj).__name__)
+        model.needs_sender[conn.learning_rule] = PESModulatoryTarget(probe)
+
+
+def build_host_to_learning_rule(model, conn):
+    dim = conn.size_out
+    nengo_model = model.delegate(base_obj(conn.pre))
+
+    logger.debug("Creating HostSendNode for %s", conn)
+    send = HostSendNode(
+        dim,
+        label=None if conn.label is None else "%s_send" % conn.label,
+        add_to_container=False,
+    )
+    nengo_model.build(send)
+
+    pre2send = Connection(
+        conn.pre,
+        send,
+        function=conn.function,
+        solver=conn.solver,
+        eval_points=conn.eval_points,
+        scale_eval_points=conn.scale_eval_points,
+        synapse=conn.synapse,
+        transform=conn.transform,
+        label=conn.label,
+        add_to_container=False,
+    )
+    pes_target = model.needs_sender[conn.post_obj]
+    model.host2chip_senders[send] = pes_target
+    _inherit_seed(nengo_model, pre2send, model, conn)
+    nengo_model.build(pre2send)
 
 
 def build_decoders(model, conn, rng, sampled_transform):
@@ -115,13 +375,10 @@ def build_no_solver(model, solver, conn, rng, sampled_transform):
         return _build_no_solver(model, solver, conn, rng)
 
 
-@Builder.register(Connection)  # noqa: C901
-def build_connection(model, conn):
+def build_chip_connection(model, conn):  # noqa: C901
     if nengo_transforms is not None:
         if isinstance(conn.transform, nengo_transforms.Convolution):
-            # TODO: integrate these into the same function
-            conv.build_conv2d_connection(model, conn)
-            return
+            return build_conv2d_connection(model, conn)
         elif not isinstance(conn.transform, nengo_transforms.Dense):
             raise NotImplementedError(
                 "nengo-loihi does not yet support %s transforms"
@@ -388,4 +645,91 @@ def build_connection(model, conn):
         eval_points=eval_points,
         solver_info=solver_info,
         transform=transform,
+        weights=weights)
+
+
+def build_conv2d_connection(model, conn):
+    if nengo_transforms is None:
+        # It should not be possible to reach this, because this function is
+        # only called for a Convolution transform, which can exist only if
+        # nengo_transforms exists.
+        raise NotImplementedError("Convolution requires newer Nengo")
+
+    if conn.transform.dimensions != 2:
+        raise NotImplementedError("nengo-loihi only supports 2D convolution")
+    if conn.transform.padding != "valid":
+        raise NotImplementedError(
+            "nengo-loihi only supports convolution with 'valid' padding")
+
+    # Create random number generator
+    rng = np.random.RandomState(model.seeds[conn])
+
+    pre_cx = model.objs[conn.pre_obj]['out']
+    post_cx = model.objs[conn.post_obj]['in']
+    assert isinstance(pre_cx, (LoihiInput, LoihiBlock))
+    assert isinstance(post_cx, LoihiBlock)
+
+    tau_s = 0.0
+    if isinstance(conn.synapse, nengo.synapses.Lowpass):
+        tau_s = conn.synapse.tau
+    elif conn.synapse is not None:
+        raise NotImplementedError("Cannot handle non-Lowpass synapses")
+
+    # --- pre
+    assert isinstance(conn.pre_obj, (Neurons, ChipReceiveNeurons))
+    assert conn.pre_slice == slice(None)
+
+    assert isinstance(conn.transform, nengo_transforms.Convolution)
+
+    weights = conn.transform.sample(rng=rng)
+    input_shape = conn.transform.input_shape
+
+    # Account for nengo spike height of 1/dt
+    weights = weights / model.dt
+
+    if isinstance(conn.pre_obj, ChipReceiveNeurons):
+        neuron_type = conn.pre_obj.neuron_type
+    elif isinstance(conn.pre_obj, Neurons):
+        neuron_type = conn.pre_obj.ensemble.neuron_type
+
+    if neuron_type is not None and hasattr(neuron_type, 'amplitude'):
+        weights = weights * neuron_type.amplitude
+
+    # --- post
+    assert isinstance(conn.post_obj, Neurons)
+    assert conn.post_slice == slice(None)
+
+    gain = model.params[conn.post_obj.ensemble].gain
+    if not np.all(gain == gain[0]):
+        # TODO: support this?
+        raise ValidationError(
+            "All neurons targeted by a Convolution connection must "
+            "have the same gain", "gain", obj=conn.post_obj.ensemble)
+    weights = weights * gain[0]
+
+    pop_type = 32  # TODO: pick this
+    new_transform = copy.copy(conn.transform)
+    type(new_transform).init.data[new_transform] = weights
+    weights, indices, axon_to_weight_map, cx_bases = conv2d_loihi_weights(
+        new_transform)
+
+    synapse = Synapse(np.prod(input_shape.spatial_shape),
+                      label="conv2d_weights")
+    synapse.set_population_weights(
+        weights, indices, axon_to_weight_map, cx_bases, pop_type=pop_type)
+    post_cx.add_synapse(synapse)
+    model.objs[conn]['weights'] = synapse
+
+    ax = Axon(np.prod(input_shape.spatial_shape), label="conv2d_weights")
+    ax.target = synapse
+    ax.cx_to_axon_map = pixel_idxs(input_shape)
+    ax.cx_atoms = channel_idxs(input_shape)
+    pre_cx.add_axon(ax)
+
+    post_cx.compartment.configure_filter(tau_s, dt=model.dt)
+
+    model.params[conn] = BuiltConnection(
+        eval_points=None,
+        solver_info=None,
+        transform=None,
         weights=weights)
