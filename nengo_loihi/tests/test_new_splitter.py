@@ -1,5 +1,3 @@
-from distutils.version import LooseVersion
-
 import pytest
 import nengo
 from nengo.exceptions import BuildError
