@@ -22,7 +22,9 @@ Release history
 0.7.0 (unreleased)
 ==================
 
+**Changed**
 
+- Switched to nengo-bones templating system for TravisCI config/scripts
 
 0.6.0 (February 22, 2019)
 =========================
