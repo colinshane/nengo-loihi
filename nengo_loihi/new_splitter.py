@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from nengo import Connection, Direct, Ensemble, Node, Probe
+from nengo import Direct, Ensemble, Node, Probe
 from nengo.base import ObjView
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError
@@ -114,7 +114,8 @@ class SplitterDirective:
     def is_precomputable(self, obj):
         if isinstance(obj, Probe):
             obj = _base_obj(obj.target)
-        return not self.on_chip(obj) and obj in self._host_precomputable_objects
+        return (not self.on_chip(obj)
+                and obj in self._host_precomputable_objects)
 
     def move_to_host(self, obj):
         # TODO: this could potentially change what is precomputable
