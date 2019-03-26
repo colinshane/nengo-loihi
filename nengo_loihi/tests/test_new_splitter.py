@@ -12,6 +12,7 @@ def test_place_nodes():
     # ChipReceiveNodes and HostSendNodes are created later by the builder
 
     with nengo.Network() as net:
+        add_params(net)
         offchip1 = nengo.Node(0)
         with nengo.Network():
             offchip2 = nengo.Node(np.sin)
@@ -27,7 +28,7 @@ def test_place_nodes():
     assert not splitter_directive.on_chip(offchip2)
     assert not splitter_directive.on_chip(offchip3)
 
-    with pytest.raises(IndexError):
+    with pytest.raises(IndexError, match="not a part of the network"):
         splitter_directive.on_chip(nowhere)
 
 
@@ -56,7 +57,10 @@ def test_place_ensembles():
     assert splitter_directive.on_chip(post)
     assert splitter_directive.on_chip(error)
 
-    with pytest.raises(TypeError):
+    for obj in net.all_ensembles + net.all_nodes:
+        assert not splitter_directive.is_precomputable(obj)
+
+    with pytest.raises(TypeError, match="Locations are only established"):
         splitter_directive.on_chip(conn)
 
 
@@ -126,21 +130,23 @@ def test_place_probes():
             offchip2 = nengo.Ensemble(10, 1)
             net.config[offchip2].on_chip = False
         onchip2 = nengo.Ensemble(10, 1)
-        onchip3 = nengo.Connection(onchip1, onchip2)
-        offchip3 = nengo.Connection(offchip1, offchip2)
+        nengo.Connection(onchip1, onchip2)
+        nengo.Connection(offchip1, offchip2)
         offchip_probes = [
             nengo.Probe(offchip1),
             nengo.Probe(offchip2),
-            nengo.Probe(offchip3),
         ]
         onchip_probes = [
             nengo.Probe(onchip1),
             nengo.Probe(onchip2),
-            nengo.Probe(onchip3),
         ]
 
     splitter_directive = SplitterDirective(net)
-    assert all(not splitter_directive.on_chip(p) for p in offchip_probes)
+    assert splitter_directive.on_chip(onchip1)
+    assert splitter_directive.on_chip(onchip2)
+    assert not splitter_directive.on_chip(offchip1)
+    assert not splitter_directive.on_chip(offchip2)
+    assert not any(splitter_directive.on_chip(p) for p in offchip_probes)
     assert all(splitter_directive.on_chip(p) for p in onchip_probes)
 
 
@@ -151,33 +157,40 @@ def test_split_pre_from_host():
         pre_2 = nengo.Ensemble(10, 1, label="pre_2")
         pre_3 = nengo.Node(size_in=1, label="pre_3")
         pre_4 = nengo.Ensemble(1, 1, label="pre_4")
+        pre_5 = nengo.Probe(pre_4)
+
         onchip = nengo.Ensemble(1, 1, label="onchip")
         post1 = nengo.Ensemble(10, 1, label="post1")
         post2 = nengo.Node(size_in=1, label="post2")
+        post3 = nengo.Probe(post2, label="post3")
 
-        nengo.Connection(pre_1, pre_2),
-        nengo.Connection(pre_2, pre_3),
-        nengo.Connection(pre_3, pre_4),
-        nengo.Connection(pre_4.neurons, onchip),
-        nengo.Connection(onchip, post1),
-        nengo.Connection(post1, post2),
+        nengo.Connection(pre_1, pre_2)
+        nengo.Connection(pre_2, pre_3)
+        nengo.Connection(pre_3, pre_4)
+        nengo.Connection(pre_4.neurons, onchip)
+        nengo.Connection(onchip, post1)
+        nengo.Connection(post1, post2)
 
         net.config[pre_2].on_chip = False
         net.config[pre_4].on_chip = False
+        net.config[post1].on_chip = False
 
     splitter_directive = SplitterDirective(net, precompute=True)
 
-    for obj in [pre_1, pre_2, pre_3, pre_4]:
+    for obj in [pre_1, pre_2, pre_3, pre_4, pre_5]:
         assert not splitter_directive.on_chip(obj)
         assert splitter_directive.is_precomputable(obj)
 
-    for obj in [post1, post2]:
+    for obj in [post1, post2, post3]:
         assert not splitter_directive.on_chip(obj)
         assert not splitter_directive.is_precomputable(obj)
 
     assert splitter_directive.on_chip(onchip)
-    with pytest.raises(ValueError):
-        splitter_directive.is_precomputable(onchip)
+    assert not splitter_directive.is_precomputable(onchip)
+
+    with pytest.raises(IndexError, match="not a part of the network"):
+        splitter_directive.is_precomputable(
+            nengo.Node(0, add_to_container=False))
 
 
 def test_split_precompute_loop_error():
@@ -188,7 +201,7 @@ def test_split_precompute_loop_error():
         nengo.Connection(node_offchip, ens_onchip)
         nengo.Connection(ens_onchip, node_offchip)
 
-    with pytest.raises(BuildError, match="precompute"):
+    with pytest.raises(BuildError, match="Cannot precompute"):
         SplitterDirective(net, precompute=True)
 
 
@@ -197,5 +210,5 @@ def test_already_moved_to_host():
         u = nengo.Node(0)
 
     splitter_directive = SplitterDirective(net)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be on chip"):
         splitter_directive.move_to_host(u)
