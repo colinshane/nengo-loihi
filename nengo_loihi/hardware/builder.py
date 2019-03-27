@@ -6,6 +6,7 @@ import nengo.utils.numpy as npext
 from nengo.utils.stdlib import groupby
 import numpy as np
 
+from nengo_loihi.builder.inputs import SpikeInput
 from nengo_loihi.discretize import bias_to_manexp
 from nengo_loihi.hardware.nxsdk_objects import (
     CX_PROFILES_MAX,
@@ -18,7 +19,6 @@ from nengo_loihi.hardware.nxsdk_shim import (
     N2Board,
     TraceCfgGen,
 )
-from nengo_loihi.inputs import SpikeInput
 
 logger = logging.getLogger(__name__)
 

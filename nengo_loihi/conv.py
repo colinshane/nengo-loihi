@@ -8,8 +8,8 @@ from nengo.exceptions import ValidationError
 import numpy as np
 
 from nengo_loihi.block import Axon, LoihiBlock, Synapse
+from nengo_loihi.builder.inputs import ChipReceiveNeurons, LoihiInput
 from nengo_loihi.compat import nengo_transforms
-from nengo_loihi.inputs import ChipReceiveNeurons, LoihiInput
 
 
 class ImageSlice:

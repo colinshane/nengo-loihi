@@ -4,6 +4,7 @@ import pytest
 
 from nengo_loihi.block import Axon, LoihiBlock, Synapse, Probe
 from nengo_loihi.builder import Model
+from nengo_loihi.builder.inputs import SpikeInput
 from nengo_loihi.discretize import discretize_model, VTH_MAX
 from nengo_loihi.emulator import EmulatorInterface
 from nengo_loihi.emulator.interface import (
@@ -13,7 +14,6 @@ from nengo_loihi.emulator.interface import (
     SynapseState,
 )
 from nengo_loihi.hardware import HardwareInterface
-from nengo_loihi.inputs import SpikeInput
 
 
 @pytest.mark.parametrize("strict", (True, False))

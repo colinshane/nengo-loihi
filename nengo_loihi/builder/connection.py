@@ -19,9 +19,7 @@ import numpy as np
 from nengo_loihi import conv
 from nengo_loihi.block import Axon, LoihiBlock, Probe, Synapse
 from nengo_loihi.builder.builder import Builder
-from nengo_loihi.compat import (
-    nengo_transforms, sample_transform, conn_solver)
-from nengo_loihi.inputs import (
+from nengo_loihi.builder.inputs import (
     LoihiInput,
     ChipReceiveNode,
     ChipReceiveNeurons,
@@ -29,6 +27,8 @@ from nengo_loihi.inputs import (
     HostReceiveNode,
     PESModulatoryTarget,
 )
+from nengo_loihi.compat import (
+    nengo_transforms, sample_transform, conn_solver)
 from nengo_loihi.neurons import loihi_rates
 
 logger = logging.getLogger(__name__)

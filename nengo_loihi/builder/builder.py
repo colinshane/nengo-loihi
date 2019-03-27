@@ -7,11 +7,11 @@ from nengo.builder.network import build_network
 from nengo.cache import NoDecoderCache
 
 from nengo_loihi.block import LoihiBlock
+from nengo_loihi.builder.inputs import LoihiInput
 from nengo_loihi.decode_neurons import (
     Preset10DecodeNeurons,
     OnOffDecodeNeurons,
 )
-from nengo_loihi.inputs import LoihiInput
 
 logger = logging.getLogger(__name__)
 
