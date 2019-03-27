@@ -1,10 +1,30 @@
-from __future__ import division
+from collections import OrderedDict
 
 from nengo import Node
 from nengo.exceptions import SimulationError
 from nengo.params import Default
 from nengo.utils.compat import is_integer
 import numpy as np
+
+
+class PESModulatoryTarget:
+    def __init__(self, target):
+        self.target = target
+        self.errors = OrderedDict()
+
+    def clear(self):
+        self.errors.clear()
+
+    def receive(self, t, x):
+        assert len(self.errors) == 0 or t >= next(reversed(self.errors))
+        if t in self.errors:
+            self.errors[t] += x
+        else:
+            self.errors[t] = np.array(x)
+
+    def collect_errors(self):
+        for t, x in self.errors.items():
+            yield (self.target, t, x)
 
 
 class LoihiInput:
