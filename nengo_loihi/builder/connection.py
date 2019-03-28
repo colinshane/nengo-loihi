@@ -2,7 +2,7 @@ import copy
 import logging
 
 import nengo
-from nengo import Ensemble, Connection, Node
+from nengo import Ensemble, Connection, Node, Probe as NengoProbe
 from nengo.builder.connection import (
     build_no_solver as _build_no_solver,
     BuiltConnection,
@@ -34,27 +34,54 @@ from nengo_loihi.neurons import loihi_rates
 logger = logging.getLogger(__name__)
 
 
-def split_host_to_chip_connections(networks, conns):
-    for conn in conns:
-        if conn in networks:
-            # Already processed
-            continue
-
-        pre_loc = networks.location(conn.pre_obj)
-        post_loc = networks.location(conn.post_obj)
-        if pre_loc == "host" and post_loc == "chip":
-            if isinstance(conn.pre_obj, Neurons):
-                split_host_neurons_to_chip(networks, conn)
-            else:
-                split_host_to_chip(networks, conn)
-            assert conn in networks
+def _base_obj(obj):
+    # TODO: consolidate with splitter.py and passthrough.py
+    from nengo.base import ObjView
+    if isinstance(obj, ObjView):
+        obj = obj.obj
+    if isinstance(obj, Neurons):
+        return obj.ensemble
+    return obj
 
 
-def split_host_neurons_to_chip(networks, conn):
+def _inherit_seed(model, dest, src):
+    model.seeded[dest] = model.seeded[src]
+    model.seeds[dest] = model.seeds[src]
+
+
+@Builder.register(Connection)
+def build_connection(model, conn):
+    is_pre_chip = model.splitter_directive.on_chip(_base_obj(conn.pre))
+    is_post_chip = model.splitter_directive.on_chip(_base_obj(conn.post))
+
+    if is_pre_chip and is_post_chip:
+        build_chip_connection(model, conn)
+
+    elif not is_pre_chip and isinstance(conn.post_obj, LearningRule):
+        build_host_to_learning_rule(model, conn)
+
+    elif not is_pre_chip and is_post_chip:
+        if isinstance(conn.pre_obj, Neurons):
+            build_host_neurons_to_chip(model, conn)
+        else:
+            build_host_to_chip(model, conn)
+
+    elif is_pre_chip and not is_post_chip:
+        build_chip_to_host(model, conn)
+
+    else:
+        assert is_pre_chip == is_post_chip
+        nengo_model = model.delegate(_base_obj(conn.pre))
+        assert nengo_model is model.delegate(_base_obj(conn.post))
+        nengo_model.build(conn)
+
+
+def build_host_neurons_to_chip(model, conn):
     """Send spikes over and do the rest of the connection on-chip"""
 
     assert not isinstance(conn.post, LearningRule)
     dim = conn.size_in
+    nengo_model = model.delegate(_base_obj(conn.pre))
 
     logger.debug("Creating ChipReceiveNeurons for %s", conn)
     receive = ChipReceiveNeurons(
@@ -63,7 +90,9 @@ def split_host_neurons_to_chip(networks, conn):
         label=None if conn.label is None else "%s_neurons" % conn.label,
         add_to_container=False,
     )
-    networks.add(receive, "chip")
+    _inherit_seed(model, receive, conn)
+    model.builder.build(model, receive)
+
     receive2post = Connection(
         receive,
         conn.post,
@@ -72,7 +101,8 @@ def split_host_neurons_to_chip(networks, conn):
         label=None if conn.label is None else "%s_chip" % conn.label,
         add_to_container=False,
     )
-    networks.add(receive2post, "chip")
+    _inherit_seed(model, receive2post, conn)
+    build_chip_connection(model, receive2post)
 
     logger.debug("Creating HostSendNode for %s", conn)
     send = HostSendNode(
@@ -80,7 +110,8 @@ def split_host_neurons_to_chip(networks, conn):
         label=None if conn.label is None else "%s_send" % conn.label,
         add_to_container=False,
     )
-    networks.add(send, "host")
+    nengo_model.build(send)
+
     pre2send = Connection(
         conn.pre,
         send,
@@ -88,14 +119,16 @@ def split_host_neurons_to_chip(networks, conn):
         label=None if conn.label is None else "%s_host" % conn.label,
         add_to_container=False,
     )
-    networks.add(pre2send, "host")
+    model.host2chip_senders[send] = receive
+    _inherit_seed(nengo_model, pre2send, conn)
+    nengo_model.build(pre2send)
 
-    networks.host2chip_senders[send] = receive
-    networks.remove(conn)
 
-
-def split_host_to_chip(networks, conn):
+def build_host_to_chip(model, conn):
+    rng = np.random.RandomState(model.seeds[conn])
     dim = conn.size_out
+    nengo_model = model.delegate(_base_obj(conn.pre))
+
     logger.debug("Creating ChipReceiveNode for %s", conn)
     receive = ChipReceiveNode(
         dim * 2,
@@ -103,23 +136,26 @@ def split_host_to_chip(networks, conn):
         label=None if conn.label is None else "%s_node" % conn.label,
         add_to_container=False,
     )
-    networks.add(receive, "chip")
+    model.builder.build(model, receive)
+
     receive2post = Connection(
         receive,
         conn.post,
-        synapse=networks.node_tau,
+        synapse=model.decode_tau,
         label=None if conn.label is None else "%s_chip" % conn.label,
         add_to_container=False,
     )
-    networks.add(receive2post, "chip")
+    _inherit_seed(model, receive2post, conn)
+    build_chip_connection(model, receive2post)
 
     logger.debug("Creating DecodeNeuron ensemble for %s", conn)
-    if networks.node_neurons is None:
+    if model.node_neurons is None:
         raise BuildError(
             "DecodeNeurons must be specified for host->chip connection.")
-    ens = networks.node_neurons.get_ensemble(dim)
+    ens = model.node_neurons.get_ensemble(dim)
     ens.label = None if conn.label is None else "%s_ens" % conn.label
-    networks.add(ens, "host")
+    _inherit_seed(nengo_model, ens, conn)
+    nengo_model.build(ens)
 
     if nengo_transforms is not None and isinstance(
             conn.transform, nengo_transforms.Convolution):
@@ -128,8 +164,7 @@ def split_host_to_chip(networks, conn):
             "on-chip connections where `pre` is not a Neurons object.")
 
     # Scale the input spikes based on the radius of the target ensemble
-    seed = networks.original.seed if conn.seed is None else conn.seed
-    weights = sample_transform(conn, rng=np.random.RandomState(seed=seed))
+    weights = sample_transform(conn, rng=rng)
 
     if isinstance(conn.post_obj, Ensemble):
         weights = weights / conn.post_obj.radius
@@ -153,7 +188,8 @@ def split_host_to_chip(networks, conn):
         label=None if conn.label is None else "%s_enc" % conn.label,
         add_to_container=False,
     )
-    networks.add(pre2ens, "host")
+    _inherit_seed(nengo_model, pre2ens, conn)
+    nengo_model.build(pre2ens)
 
     logger.debug("Creating HostSendNode for %s", conn)
     send = HostSendNode(
@@ -161,7 +197,8 @@ def split_host_to_chip(networks, conn):
         label=None if conn.label is None else "%s_send" % conn.label,
         add_to_container=False,
     )
-    networks.add(send, "host")
+    nengo_model.build(send)
+
     ensneurons2send = Connection(
         ens.neurons,
         send,
@@ -169,28 +206,15 @@ def split_host_to_chip(networks, conn):
         label=None if conn.label is None else "%s_host" % conn.label,
         add_to_container=False,
     )
-    networks.add(ensneurons2send, "host")
-    networks.remove(conn)
-
-    networks.host2chip_senders[send] = receive
-
-
-def split_chip_to_host_connections(networks, conns):
-    for conn in conns:
-        if conn in networks:
-            # Already processed
-            continue
-
-        pre_loc = networks.location(conn.pre_obj)
-        post_loc = networks.location(conn.post_obj)
-        # All other connections should be processed by this point
-        if pre_loc == "chip" and post_loc == "host":
-            split_chip_to_host(networks, conn)
-            assert conn in networks
+    _inherit_seed(nengo_model, ensneurons2send, conn)
+    model.host2chip_senders[send] = receive
+    nengo_model.build(ensneurons2send)
 
 
-def split_chip_to_host(networks, conn):
+def build_chip_to_host(model, conn):
+    rng = np.random.RandomState(model.seeds[conn])
     dim = conn.size_out
+    nengo_model = model.delegate(_base_obj(conn.post))
 
     logger.debug("Creating HostReceiveNode for %s", conn)
     receive = HostReceiveNode(
@@ -198,7 +222,8 @@ def split_chip_to_host(networks, conn):
         label=None if conn.label is None else "%s_receive" % conn.label,
         add_to_container=False,
     )
-    networks.add(receive, "host")
+    nengo_model.build(receive)
+
     receive2post = Connection(
         receive,
         conn.post,
@@ -206,17 +231,17 @@ def split_chip_to_host(networks, conn):
         label=None if conn.label is None else "%s_host" % conn.label,
         add_to_container=False,
     )
-    networks.add(receive2post, "host")
+    _inherit_seed(nengo_model, receive2post, conn)
+    nengo_model.build(receive2post)
 
     logger.debug("Creating Probe for %s", conn)
-    seed = networks.original.seed if conn.seed is None else conn.seed
-    transform = sample_transform(conn, rng=np.random.RandomState(seed=seed))
+    transform = sample_transform(conn, rng=rng)
 
-    probe = Probe(conn.pre,
-                  synapse=None,
-                  solver=conn.solver,
-                  add_to_container=False)
-    networks.chip2host_params[probe] = dict(
+    probe = NengoProbe(conn.pre,
+                       synapse=None,
+                       solver=conn.solver,
+                       add_to_container=False)
+    model.chip2host_params[probe] = dict(
         learning_rule_type=conn.learning_rule_type,
         function=conn.function,
         eval_points=conn.eval_points,
@@ -224,40 +249,29 @@ def split_chip_to_host(networks, conn):
         transform=transform,
         label=None if conn.label is None else "%s_probe" % conn.label,
     )
-    networks.add(probe, "chip")
-    networks.chip2host_receivers[probe] = receive
+    model.chip2host_receivers[probe] = receive
+    _inherit_seed(model, probe, conn)
+    model.builder.build(model, probe)
 
     if conn.learning_rule_type is not None:
         if not isinstance(conn.pre_obj, Ensemble):
             raise NotImplementedError(
                 "Learning rule presynaptic object must be an Ensemble "
                 "(got %r)" % type(conn.pre_obj).__name__)
-        networks.needs_sender[conn.learning_rule] = PESModulatoryTarget(probe)
-    networks.remove(conn)
+        model.needs_sender[conn.learning_rule] = PESModulatoryTarget(probe)
 
 
-def split_host_to_learning_rules(networks, conns):
-    for conn in conns:
-        if conn in networks:
-            # Already processed
-            continue
-
-        pre_loc = networks.location(conn.pre_obj)
-        if (pre_loc == "host"
-                and isinstance(conn.post_obj, LearningRule)):
-            split_host_to_learning_rule(networks, conn)
-            assert conn in networks
-
-
-def split_host_to_learning_rule(networks, conn):
+def build_host_to_learning_rule(model, conn):
     dim = conn.size_out
+    nengo_model = model.delegate(_base_obj(conn.pre))
+
     logger.debug("Creating HostSendNode for %s", conn)
     send = HostSendNode(
         dim,
         label=None if conn.label is None else "%s_send" % conn.label,
         add_to_container=False,
     )
-    networks.add(send, "host")
+    nengo_model.build(send)
 
     pre2send = Connection(
         conn.pre,
@@ -271,10 +285,10 @@ def split_host_to_learning_rule(networks, conn):
         label=conn.label,
         add_to_container=False,
     )
-    networks.add(pre2send, "host")
-    pes_target = networks.needs_sender[conn.post_obj]
-    networks.host2chip_senders[send] = pes_target
-    networks.remove(conn)
+    pes_target = model.needs_sender[conn.post_obj]
+    model.host2chip_senders[send] = pes_target
+    _inherit_seed(nengo_model, pre2send, conn)
+    nengo_model.build(pre2send)
 
 
 def build_decoders(model, conn, rng, sampled_transform):
@@ -370,8 +384,7 @@ def build_no_solver(model, solver, conn, rng, sampled_transform):
         return _build_no_solver(model, solver, conn, rng)
 
 
-@Builder.register(Connection)  # noqa: C901
-def build_connection(model, conn):
+def build_chip_connection(model, conn):  # noqa: C901
     if nengo_transforms is not None:
         if isinstance(conn.transform, nengo_transforms.Convolution):
             # TODO: integrate these into the same function

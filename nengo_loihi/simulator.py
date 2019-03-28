@@ -4,7 +4,6 @@ import traceback
 import warnings
 
 import nengo
-from nengo.cache import get_default_decoder_cache
 from nengo.exceptions import (
     ReadonlyError,
     SimulatorClosed,
@@ -20,7 +19,7 @@ from nengo_loihi.compat import seed_network
 from nengo_loihi.discretize import discretize_model
 from nengo_loihi.emulator import EmulatorInterface
 from nengo_loihi.hardware import HardwareInterface, HAS_NXSDK
-from nengo_loihi.splitter import split
+from nengo_loihi.new_splitter import SplitterDirective
 import nengo_loihi.config as config
 
 logger = logging.getLogger(__name__)
@@ -306,7 +305,7 @@ class Simulator:
             assert self.model.dt == dt
 
         self.precompute = precompute
-        self.networks = None
+        self.network = network
         self.sims = OrderedDict()
         self._run_steps = None
 
@@ -319,41 +318,35 @@ class Simulator:
         # ensure seeds are identical to nengo
         seed_network(network, seeds=self.model.seeds,
                      seeded=self.model.seeded)
+        self.model.host.seeds.update(self.model.seeds)
+        self.model.host.seeded.update(self.model.seeded)
+        self.model.host_pre.seeds.update(self.model.seeds)
+        self.model.host_pre.seeded.update(self.model.seeded)
 
-        # split the host into one, two or three networks
-        self.networks = split(
-            network,
-            precompute=precompute,
-            node_neurons=self.model.node_neurons,
-            node_tau=self.model.decode_tau,
-            remove_passthrough=remove_passthrough,
-        )
-        network = self.networks.chip
+        # determine how to split the host into one, two or three models
+        self.model.splitter_directive = SplitterDirective(
+            network, precompute=precompute)
 
-        self.model.chip2host_params = self.networks.chip2host_params
+        # Build the network into the model
+        self.model.build(network)
 
-        self.chip = self.networks.chip
-        self.host = self.networks.host
-        self.host_pre = self.networks.host_pre
-
-        if len(self.host_pre.all_objects) > 0:
-            host_pre_model = self._get_host_model(
-                self.host_pre, dt=dt, seeds=self.model.seeds,
-                seeded=self.model.seeded)
-            self.sims["host_pre"] = nengo.Simulator(self.host_pre,
-                                                    dt=self.dt,
-                                                    model=host_pre_model,
-                                                    progress_bar=False,
-                                                    optimize=False)
-
-        if len(self.host.all_objects) > 0:
-            host_model = self._get_host_model(
-                self.host, dt=dt, seeds=self.model.seeds,
-                seeded=self.model.seeded)
-            self.sims["host"] = nengo.Simulator(
-                self.host,
+        if len(self.model.splitter_directive.host_precomputable_objects):
+            assert precompute
+            self.sims["host_pre"] = nengo.Simulator(
+                network=None,
                 dt=self.dt,
-                model=host_model,
+                model=self.model.host_pre,
+                progress_bar=False,
+                optimize=False)
+        elif precompute:
+            warnings.warn("No precomputable objects. Setting "
+                          "precompute=True has no effect.")
+
+        if len(self.model.splitter_directive.host_nonprecomputable_objects):
+            self.sims["host"] = nengo.Simulator(
+                network=None,
+                dt=self.dt,
+                model=self.model.host,
                 progress_bar=False,
                 optimize=False)
         elif not precompute:
@@ -363,9 +356,6 @@ class Simulator:
             # We could warn about this, but we want to avoid people having
             # to specify `precompute` unless they absolutely have to.
             self.precompute = True
-
-        # Build the network into the model
-        self.model.build(network)
 
         self._probe_outputs = self.model.params
         self.data = ProbeDict(self._probe_outputs)
@@ -402,16 +392,6 @@ class Simulator:
 
         self.closed = False
         self.reset(seed=seed)
-
-    @staticmethod
-    def _get_host_model(network, dt, seeds, seeded):
-        model = nengo.builder.Model(
-            dt=float(dt),
-            label="%s, dt=%f" % (network, dt),
-            decoder_cache=get_default_decoder_cache())
-        model.seeds.update(seeds)
-        model.seeded.update(seeded)
-        return model
 
     def __del__(self):
         """Raise a ResourceWarning if we are deallocated while open."""
@@ -468,7 +448,7 @@ class Simulator:
         self._probe_step_time()
 
         for probe in self.model.probes:
-            if probe in self.networks.chip2host_params:
+            if probe in self.model.chip2host_params:
                 continue
             assert probe.sample_every is None, (
                 "probe.sample_every not implemented")
@@ -551,7 +531,7 @@ class Simulator:
     def _collect_receiver_info(self):
         spikes = []
         errors = OrderedDict()
-        for sender, receiver in self.networks.host2chip_senders.items():
+        for sender, receiver in self.model.host2chip_senders.items():
             receiver.clear()
             for t, x in sender.queue:
                 receiver.receive(t, x)
@@ -584,7 +564,7 @@ class Simulator:
     def _chip2host(self, sim):
         probes_receivers = OrderedDict(  # map probes to receivers
             (self.model.objs[probe]['out'], receiver)
-            for probe, receiver in self.networks.chip2host_receivers.items())
+            for probe, receiver in self.model.chip2host_receivers.items())
         sim.chip2host(probes_receivers)
 
     def _make_run_steps(self):

@@ -1,10 +1,11 @@
 from collections import defaultdict, OrderedDict
 import logging
 
-from nengo import Network
+from nengo import Network, Node, Ensemble, Probe
+from nengo.builder import Model as NengoModel
 from nengo.builder.builder import Builder as NengoBuilder
 from nengo.builder.network import build_network
-from nengo.cache import NoDecoderCache
+from nengo.cache import NoDecoderCache, get_default_decoder_cache
 
 from nengo_loihi.block import LoihiBlock
 from nengo_loihi.builder.inputs import LoihiInput
@@ -89,9 +90,25 @@ class Model:
         self.build_callback = None
         self.decoder_cache = NoDecoderCache()
 
+        # Host models filled in by the build process
+        def create_host_model(label, dt):
+            return NengoModel(
+                dt=float(dt),
+                label="%s, dt=%f" % (label, dt),
+                decoder_cache=get_default_decoder_cache())
+
+        # TODO: these models may not look/behave exactly the same as
+        # standard nengo models, because they don't have a toplevel network
+        # built into them or configs set
+        self.host_pre = create_host_model(label="%s, host_pre" % label, dt=dt)
+        self.host = create_host_model(label="%s, host" % label, dt=dt)
+
         # Objects created by the model for simulation on Loihi
         self.inputs = OrderedDict()
         self.blocks = OrderedDict()
+
+        # Will be filled in by the simulator __init__
+        self.splitter_directive = None
 
         # Will be filled in by the network builder
         self.toplevel = None
@@ -128,8 +145,11 @@ class Model:
         # magnitude/weight resolution)
         self.pes_wgt_exp = 4
 
-        # Will be provided by Simulator
+        # Used to track interactions between host models
         self.chip2host_params = {}
+        self.chip2host_receivers = OrderedDict()
+        self.host2chip_senders = OrderedDict()
+        self.needs_sender = {}
 
     def __getstate__(self):
         raise NotImplementedError("Can't pickle nengo_loihi.builder.Model")
@@ -150,8 +170,22 @@ class Model:
         assert block not in self.blocks
         self.blocks[block] = len(self.blocks)
 
+    def delegate(self, obj):
+        if not isinstance(obj, (Node, Ensemble, Probe)):
+            # Note: this is safe because any objects built from within a normal
+            # nengo model (other than self) will not be re-delegated
+            return self
+        elif self.splitter_directive.on_chip(obj):
+            return self
+        elif self.splitter_directive.is_precomputable(obj):
+            return self.host_pre
+        else:
+            return self.host
+
     def build(self, obj, *args, **kwargs):
-        built = self.builder.build(self, obj, *args, **kwargs)
+        # Note: any callbacks for host_pre or host will not be invoked here
+        model = self.delegate(obj)
+        built = model.builder.build(model, obj, *args, **kwargs)
         if self.build_callback is not None:
             self.build_callback(obj)
         return built
