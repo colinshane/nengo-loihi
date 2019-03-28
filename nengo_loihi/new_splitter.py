@@ -19,7 +19,7 @@ def _base_obj(obj):
 class SplitterDirective:
     """Creates a set of directives to guide the builder."""
 
-    def __init__(self, network, precompute=False, remove_passthrough=False):
+    def __init__(self, network, precompute=False):
         self.network = network
 
         # subset of network: only nodes and ensembles;
@@ -123,3 +123,19 @@ class SplitterDirective:
             raise ValueError("Object (%r) must be on chip to be moved to host"
                              % (obj,))
         self._chip_objects.remove(obj)
+
+    @property
+    def chip_objects(self):
+        """Nodes and Ensembles on chip."""
+        return self._chip_objects
+
+    @property
+    def host_precomputable_objects(self):
+        """Precomputable Nodes and Ensembles on host."""
+        return self._host_precomputable_objects
+
+    @property
+    def host_nonprecomputable_objects(self):
+        """Non-precomputable Nodes and Ensembles on host."""
+        return (self._seen_objects - self._chip_objects -
+                self._host_precomputable_objects)

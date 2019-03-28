@@ -177,16 +177,23 @@ def test_split_pre_from_host():
 
     splitter_directive = SplitterDirective(net, precompute=True)
 
-    for obj in [pre_1, pre_2, pre_3, pre_4, pre_5]:
+    host_precomputable = {pre_1, pre_2, pre_3, pre_4, pre_5}
+    for obj in host_precomputable:
         assert not splitter_directive.on_chip(obj)
         assert splitter_directive.is_precomputable(obj)
+    assert (splitter_directive.host_precomputable_objects ==
+            host_precomputable - {pre_5})  # minus probe
 
-    for obj in [post1, post2, post3]:
+    host_nonprecomputable = {post1, post2, post3}
+    for obj in host_nonprecomputable:
         assert not splitter_directive.on_chip(obj)
         assert not splitter_directive.is_precomputable(obj)
+    assert (splitter_directive.host_nonprecomputable_objects ==
+            host_nonprecomputable - {post3})  # minus probe
 
     assert splitter_directive.on_chip(onchip)
     assert not splitter_directive.is_precomputable(onchip)
+    assert splitter_directive.chip_objects == {onchip}
 
     with pytest.raises(IndexError, match="not a part of the network"):
         splitter_directive.is_precomputable(
