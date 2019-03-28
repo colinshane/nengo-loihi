@@ -314,7 +314,6 @@ class Simulator:
             raise ValidationError("network parameter must not be None",
                                   attr="network")
 
-        nengo.rc.set("decoder_cache", "enabled", "False")
         config.add_params(network)
 
         # ensure seeds are identical to nengo

@@ -109,9 +109,12 @@ class Model:
 
         # Host models filled in by the build process
         def create_host_model(label, dt):
+            # We don't use a decoder cache because it requires a context
+            # manager that differs depending on which sub-model is being built
             return NengoModel(
                 dt=float(dt),
                 label="%s, dt=%f" % (label, dt),
+                decoder_cache=NoDecoderCache(),
             )
 
         # TODO: these models may not look/behave exactly the same as
