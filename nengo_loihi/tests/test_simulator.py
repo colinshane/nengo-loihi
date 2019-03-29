@@ -325,11 +325,10 @@ def test_tau_s_warning(Simulator):
     with pytest.warns(UserWarning) as record:
         with Simulator(net):
             pass
-    # The 0.001 synapse is applied first due to splitting rules putting
-    # the stim -> ens connection later than the ens -> ens connection
+
     assert any(rec.message.args[0] == (
-        "tau_s is currently 0.001, which is smaller than 0.005. "
-        "Overwriting tau_s with 0.005.") for rec in record)
+        "tau_s is already set to 0.005, which is larger than 0.001. Using 0.005."
+    ) for rec in record)
 
     with net:
         nengo.Connection(ens, ens,
@@ -338,9 +337,10 @@ def test_tau_s_warning(Simulator):
     with pytest.warns(UserWarning) as record:
         with Simulator(net):
             pass
+
     assert any(rec.message.args[0] == (
-        "tau_s is already set to 0.1, which is larger than 0.005. Using 0.1."
-    ) for rec in record)
+        "tau_s is currently 0.005, which is smaller than 0.1. "
+        "Overwriting tau_s with 0.1.") for rec in record)
 
 
 @pytest.mark.xfail(nengo.version.version_info <= (2, 8, 0),
