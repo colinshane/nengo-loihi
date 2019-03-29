@@ -5,7 +5,7 @@ from nengo.exceptions import BuildError
 from nengo.connection import LearningRule
 
 from nengo_loihi.passthrough import (
-    convert_passthroughs, PassthroughDirective, base_obj)
+    convert_passthroughs, PassthroughDirective, base_obj, is_passthrough)
 
 
 class SplitterDirective:
@@ -56,9 +56,9 @@ class SplitterDirective:
 
         # Step 4. Mark passthrough nodes for removal
         if remove_passthrough:
-            ignore = (self._seen_objects
-                      - self._chip_objects
-                      - set(network.all_nodes))
+            passthroughs = set(
+                obj for obj in network.all_nodes if is_passthrough(obj))
+            ignore = self._seen_objects - self._chip_objects - passthroughs
             self.passthrough_directive = convert_passthroughs(network, ignore)
         else:
             self.passthrough_directive = PassthroughDirective(
