@@ -30,18 +30,9 @@ from nengo_loihi.builder.inputs import (
 from nengo_loihi.compat import (
     nengo_transforms, sample_transform, conn_solver)
 from nengo_loihi.neurons import loihi_rates
+from nengo_loihi.passthrough import base_obj
 
 logger = logging.getLogger(__name__)
-
-
-def _base_obj(obj):
-    # TODO: consolidate with splitter.py and passthrough.py
-    from nengo.base import ObjView
-    if isinstance(obj, ObjView):
-        obj = obj.obj
-    if isinstance(obj, Neurons):
-        return obj.ensemble
-    return obj
 
 
 def _inherit_seed(dest_model, dest_obj, src_model, src_obj):
@@ -51,13 +42,13 @@ def _inherit_seed(dest_model, dest_obj, src_model, src_obj):
 
 @Builder.register(Connection)
 def build_connection(model, conn):
-    is_pre_chip = model.splitter_directive.on_chip(_base_obj(conn.pre))
+    is_pre_chip = model.splitter_directive.on_chip(base_obj(conn.pre))
 
     if isinstance(conn.post_obj, LearningRule):
         assert not is_pre_chip
         return build_host_to_learning_rule(model, conn)
 
-    is_post_chip = model.splitter_directive.on_chip(_base_obj(conn.post))
+    is_post_chip = model.splitter_directive.on_chip(base_obj(conn.post))
 
     if is_pre_chip and is_post_chip:
         build_chip_connection(model, conn)
@@ -73,8 +64,8 @@ def build_connection(model, conn):
 
     else:
         assert is_pre_chip == is_post_chip
-        nengo_model = model.delegate(_base_obj(conn.pre))
-        assert nengo_model is model.delegate(_base_obj(conn.post))
+        nengo_model = model.delegate(base_obj(conn.pre))
+        assert nengo_model is model.delegate(base_obj(conn.post))
         _inherit_seed(nengo_model, conn, model, conn)
         nengo_model.build(conn)
 
@@ -84,7 +75,7 @@ def build_host_neurons_to_chip(model, conn):
 
     assert not isinstance(conn.post, LearningRule)
     dim = conn.size_in
-    nengo_model = model.delegate(_base_obj(conn.pre))
+    nengo_model = model.delegate(base_obj(conn.pre))
 
     logger.debug("Creating ChipReceiveNeurons for %s", conn)
     receive = ChipReceiveNeurons(
@@ -130,7 +121,7 @@ def build_host_neurons_to_chip(model, conn):
 def build_host_to_chip(model, conn):
     rng = np.random.RandomState(model.seeds[conn])
     dim = conn.size_out
-    nengo_model = model.delegate(_base_obj(conn.pre))
+    nengo_model = model.delegate(base_obj(conn.pre))
 
     logger.debug("Creating ChipReceiveNode for %s", conn)
     receive = ChipReceiveNode(
@@ -217,7 +208,7 @@ def build_host_to_chip(model, conn):
 def build_chip_to_host(model, conn):
     rng = np.random.RandomState(model.seeds[conn])
     dim = conn.size_out
-    nengo_model = model.delegate(_base_obj(conn.post))
+    nengo_model = model.delegate(base_obj(conn.post))
 
     logger.debug("Creating HostReceiveNode for %s", conn)
     receive = HostReceiveNode(
@@ -266,7 +257,7 @@ def build_chip_to_host(model, conn):
 
 def build_host_to_learning_rule(model, conn):
     dim = conn.size_out
-    nengo_model = model.delegate(_base_obj(conn.pre))
+    nengo_model = model.delegate(base_obj(conn.pre))
 
     logger.debug("Creating HostSendNode for %s", conn)
     send = HostSendNode(

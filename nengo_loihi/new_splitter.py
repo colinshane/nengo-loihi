@@ -1,21 +1,12 @@
 from collections import defaultdict
 
 from nengo import Direct, Ensemble, Node, Probe
-from nengo.base import ObjView
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError
 from nengo.connection import LearningRule
 
-from nengo_loihi.passthrough import convert_passthroughs, PassthroughDirective
-
-
-def _base_obj(obj):
-    """Returns the ensemble underlying some view or neurons."""
-    if isinstance(obj, ObjView):
-        obj = obj.obj
-    if isinstance(obj, Neurons):
-        return obj.ensemble
-    return obj
+from nengo_loihi.passthrough import (
+    convert_passthroughs, PassthroughDirective, base_obj)
 
 
 class SplitterDirective:
@@ -45,8 +36,8 @@ class SplitterDirective:
 
         # Step 3. Move learning ensembles (post and error) to host
         for conn in network.all_connections:
-            pre = _base_obj(conn.pre)
-            post = _base_obj(conn.post)
+            pre = base_obj(conn.pre)
+            post = base_obj(conn.post)
             if (conn.learning_rule_type is not None
                     and isinstance(post, Ensemble)
                     and post in self._chip_objects):
@@ -103,7 +94,7 @@ class SplitterDirective:
         # initialize queue with the pre objects on
         # host -> chip connections
         for conn in self.network.all_connections:
-            pre, post = _base_obj(conn.pre), _base_obj(conn.post)
+            pre, post = base_obj(conn.pre), base_obj(conn.post)
             pre_to_conn[pre].append(conn)
             post_to_conn[post].append(conn)
             if self.on_chip(post) and not self.on_chip(pre):
@@ -116,16 +107,16 @@ class SplitterDirective:
 
             # handle forwards adjacencies
             for conn in pre_to_conn[node_or_ens]:
-                assert _base_obj(conn.pre) is node_or_ens
+                assert base_obj(conn.pre) is node_or_ens
                 if not isinstance(conn.post, LearningRule):
-                    post = _base_obj(conn.post)
+                    post = base_obj(conn.post)
                     if not self.on_chip(post):
                         mark_precomputable(post)
 
             # handle backwards adjacencies
             for conn in post_to_conn[node_or_ens]:
-                assert _base_obj(conn.post) is node_or_ens
-                pre = _base_obj(conn.pre)
+                assert base_obj(conn.post) is node_or_ens
+                pre = base_obj(conn.pre)
                 if self.on_chip(pre):
                     raise BuildError("Cannot precompute input, "
                                      "as it is dependent on output")
@@ -135,7 +126,7 @@ class SplitterDirective:
 
     def on_chip(self, obj):
         if isinstance(obj, Probe):
-            obj = _base_obj(obj.target)
+            obj = base_obj(obj.target)
         if not isinstance(obj, (Ensemble, Node)):
             raise TypeError("Locations are only established for ensembles ",
                             "nodes, and probes -- not for %r" % (obj,))
@@ -146,7 +137,7 @@ class SplitterDirective:
 
     def is_precomputable(self, obj):
         if isinstance(obj, Probe):
-            obj = _base_obj(obj.target)
+            obj = base_obj(obj.target)
         return (not self.on_chip(obj)
                 and obj in self._host_precomputable_objects)
 

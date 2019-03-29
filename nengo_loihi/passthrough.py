@@ -2,6 +2,7 @@ from collections import OrderedDict, namedtuple
 import warnings
 
 from nengo import Connection, Lowpass, Node
+from nengo.base import ObjView
 from nengo.connection import LearningRule
 from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError, NengoException
@@ -19,7 +20,9 @@ def is_passthrough(obj):
 
 
 def base_obj(obj):
-    """Returns the Ensemble or Node underlying an object"""
+    """Returns the object underlying some view or neurons."""
+    if isinstance(obj, ObjView):
+        obj = obj.obj
     if isinstance(obj, Neurons):
         return obj.ensemble
     return obj
@@ -221,8 +224,8 @@ def find_clusters(net, ignore):
 
     clusters = OrderedDict()  # mapping from object to its Cluster
     for c in net.all_connections:
-        base_pre = base_obj(c.pre_obj)
-        base_post = base_obj(c.post_obj)
+        base_pre = base_obj(c.pre)
+        base_post = base_obj(c.post)
 
         pass_pre = is_passthrough(c.pre_obj) and c.pre_obj not in ignore
         if pass_pre and c.pre_obj not in clusters:
@@ -282,11 +285,11 @@ def convert_passthroughs(network, ignore):
             onchip_input = False
             onchip_output = False
             for c in cluster.conns_in:
-                if base_obj(c.pre_obj) not in ignore:
+                if base_obj(c.pre) not in ignore:
                     onchip_input = True
                     break
             for c in cluster.conns_out:
-                if base_obj(c.post_obj) not in ignore:
+                if base_obj(c.post) not in ignore:
                     onchip_output = True
                     break
             has_input = len(cluster.conns_in) > 0
