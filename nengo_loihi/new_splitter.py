@@ -50,7 +50,8 @@ class SplitterDirective:
                       - set(network.all_nodes))
             self.passthrough_directive = convert_passthroughs(network, ignore)
         else:
-            self.passthrough_directive = PassthroughDirective(set(), set(), set())
+            self.passthrough_directive = PassthroughDirective(
+                set(), set(), set())
 
         # Step 3. Split precomputable parts of host
         # This is a subset of host, marking which are precomputable

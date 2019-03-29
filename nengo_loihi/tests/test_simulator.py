@@ -327,7 +327,8 @@ def test_tau_s_warning(Simulator):
             pass
 
     assert any(rec.message.args[0] == (
-        "tau_s is already set to 0.005, which is larger than 0.001. Using 0.005."
+        "tau_s is already set to 0.005, which is larger than 0.001. "
+        "Using 0.005."
     ) for rec in record)
 
     with net:
