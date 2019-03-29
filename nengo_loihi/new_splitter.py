@@ -43,7 +43,20 @@ class SplitterDirective:
                 self._chip_objects.add(ens)
             self._seen_objects.add(ens)
 
-        # Step 2. Mark passthrough nodes for removal
+        # Step 3. Move learning ensembles (post and error) to host
+        for conn in network.all_connections:
+            pre = _base_obj(conn.pre)
+            post = _base_obj(conn.post)
+            if (conn.learning_rule_type is not None
+                    and isinstance(post, Ensemble)
+                    and post in self._chip_objects):
+                self._chip_objects.remove(post)
+            elif (isinstance(post, LearningRule)
+                  and isinstance(pre, Ensemble)
+                  and pre in self._chip_objects):
+                self._chip_objects.remove(pre)
+
+        # Step 4. Mark passthrough nodes for removal
         if remove_passthrough:
             ignore = (self._seen_objects
                       - self._chip_objects
@@ -53,7 +66,7 @@ class SplitterDirective:
             self.passthrough_directive = PassthroughDirective(
                 set(), set(), set())
 
-        # Step 3. Split precomputable parts of host
+        # Step 5. Split precomputable parts of host
         # This is a subset of host, marking which are precomputable
         if precompute:
             self._host_precomputable_objects = self._preclosure()

@@ -52,13 +52,15 @@ def _inherit_seed(dest_model, dest_obj, src_model, src_obj):
 @Builder.register(Connection)
 def build_connection(model, conn):
     is_pre_chip = model.splitter_directive.on_chip(_base_obj(conn.pre))
+
+    if isinstance(conn.post_obj, LearningRule):
+        assert not is_pre_chip
+        return build_host_to_learning_rule(model, conn)
+
     is_post_chip = model.splitter_directive.on_chip(_base_obj(conn.post))
 
     if is_pre_chip and is_post_chip:
         build_chip_connection(model, conn)
-
-    elif not is_pre_chip and isinstance(conn.post_obj, LearningRule):
-        build_host_to_learning_rule(model, conn)
 
     elif not is_pre_chip and is_post_chip:
         if isinstance(conn.pre_obj, Neurons):
