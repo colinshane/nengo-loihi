@@ -1,4 +1,4 @@
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 import warnings
 
 from nengo import Connection, Lowpass, Node
@@ -7,8 +7,11 @@ from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError, NengoException
 import numpy as np
 
-
 from nengo_loihi.compat import nengo_transforms, transform_array
+
+PassthroughDirective = namedtuple(
+    "PassthroughDirective",
+    ["removed_passthroughs", "removed_connections", "added_connections"])
 
 
 def is_passthrough(obj):
@@ -301,4 +304,6 @@ def convert_passthroughs(network, ignore):
                                            | cluster.conns_mid
                                            | cluster.conns_out)
                 added_connections.update(new_conns)
-    return removed_passthroughs, removed_connections, added_connections
+
+    return PassthroughDirective(
+        removed_passthroughs, removed_connections, added_connections)
