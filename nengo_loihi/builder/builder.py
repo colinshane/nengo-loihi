@@ -1,7 +1,7 @@
 from collections import defaultdict, OrderedDict
 import logging
 
-from nengo import Network, Node, Ensemble, Probe
+from nengo import Network, Node, Ensemble, Connection, Probe
 from nengo.builder import Model as NengoModel
 from nengo.builder.builder import Builder as NengoBuilder
 from nengo.builder.network import build_network
@@ -183,6 +183,15 @@ class Model:
             return self.host
 
     def build(self, obj, *args, **kwargs):
+        # Don't build the passthrough nodes or connections
+        passthrough_directive = self.splitter_directive.passthrough_directive
+        if (isinstance(obj, Node)
+                and obj in passthrough_directive.removed_passthroughs):
+            return None
+        if (isinstance(obj, Connection)
+                and obj in passthrough_directive.removed_connections):
+            return None
+
         # Note: any callbacks for host_pre or host will not be invoked here
         model = self.delegate(obj)
         built = model.builder.build(model, obj, *args, **kwargs)

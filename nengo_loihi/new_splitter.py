@@ -6,6 +6,8 @@ from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError
 from nengo.connection import LearningRule
 
+from nengo_loihi.passthrough import convert_passthroughs, PassthroughDirective
+
 
 def _base_obj(obj):
     """Returns the ensemble underlying some view or neurons."""
@@ -19,7 +21,7 @@ def _base_obj(obj):
 class SplitterDirective:
     """Creates a set of directives to guide the builder."""
 
-    def __init__(self, network, precompute=False):
+    def __init__(self, network, precompute=False, remove_passthrough=True):
         self.network = network
 
         # subset of network: only nodes and ensembles;
@@ -40,6 +42,15 @@ class SplitterDirective:
                     and not isinstance(ens.neuron_type, Direct)):
                 self._chip_objects.add(ens)
             self._seen_objects.add(ens)
+
+        # Step 2. Mark passthrough nodes for removal
+        if remove_passthrough:
+            ignore = (self._seen_objects
+                      - self._chip_objects
+                      - set(network.all_nodes))
+            self.passthrough_directive = convert_passthroughs(network, ignore)
+        else:
+            self.passthrough_directive = PassthroughDirective(set(), set(), set())
 
         # Step 3. Split precomputable parts of host
         # This is a subset of host, marking which are precomputable

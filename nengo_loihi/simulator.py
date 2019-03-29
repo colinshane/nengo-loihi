@@ -325,10 +325,21 @@ class Simulator:
 
         # determine how to split the host into one, two or three models
         self.model.splitter_directive = SplitterDirective(
-            network, precompute=precompute)
+            network,
+            precompute=precompute,
+            remove_passthrough=remove_passthrough)
 
         # Build the network into the model
         self.model.build(network)
+
+        # Build the extra passthrough connections into the model
+        passthrough_directive = (
+            self.model.splitter_directive.passthrough_directive)
+        for conn in passthrough_directive.added_connections:
+            # https://github.com/nengo/nengo-loihi/issues/210
+            self.model.seeds[conn] = None
+            self.model.seeded[conn] = False
+            self.model.build(conn)
 
         if len(self.model.splitter_directive.host_precomputable_objects):
             assert precompute
