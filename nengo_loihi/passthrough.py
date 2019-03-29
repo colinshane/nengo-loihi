@@ -210,7 +210,7 @@ class Cluster:
                     )
 
 
-def find_clusters(net, offchip):
+def find_clusters(net, ignore):
     """Create the Clusters for a given nengo Network."""
 
     # find which objects have Probes, as we need to make sure to keep them
@@ -221,14 +221,14 @@ def find_clusters(net, offchip):
         base_pre = base_obj(c.pre_obj)
         base_post = base_obj(c.post_obj)
 
-        pass_pre = is_passthrough(c.pre_obj) and c.pre_obj not in offchip
+        pass_pre = is_passthrough(c.pre_obj) and c.pre_obj not in ignore
         if pass_pre and c.pre_obj not in clusters:
             # add new objects to their own initial Cluster
             clusters[c.pre_obj] = Cluster(c.pre_obj)
             if c.pre_obj in probed_objs:
                 clusters[c.pre_obj].probed_objs.add(c.pre_obj)
 
-        pass_post = is_passthrough(c.post_obj) and c.post_obj not in offchip
+        pass_post = is_passthrough(c.post_obj) and c.post_obj not in ignore
         if pass_post and c.post_obj not in clusters:
             # add new objects to their own initial Cluster
             clusters[c.post_obj] = Cluster(c.post_obj)
@@ -254,7 +254,7 @@ def find_clusters(net, offchip):
     return clusters
 
 
-def convert_passthroughs(network, offchip):
+def convert_passthroughs(network, ignore):
     """Create a set of Connections that could replace the passthrough Nodes.
 
     This does not actually modify the Network, but instead returns the
@@ -262,11 +262,12 @@ def convert_passthroughs(network, offchip):
     and the Connections that should be added to replace the Nodes and
     Connections.
 
-    The parameter offchip provides a list of objects that should be considered
-    to be offchip. The system will only remove passthrough Nodes that go
-    between two onchip objects.
+    The parameter ignore provides a list of objects (i.e., ensembles and nodes)
+    that should not be considered by the passthrough removal process.
+    The system will only remove passthrough Nodes where neither pre nor post
+    are ignored.
     """
-    clusters = find_clusters(network, offchip=offchip)
+    clusters = find_clusters(network, ignore=ignore)
 
     removed_passthroughs = set()
     removed_connections = set()
@@ -278,11 +279,11 @@ def convert_passthroughs(network, offchip):
             onchip_input = False
             onchip_output = False
             for c in cluster.conns_in:
-                if base_obj(c.pre_obj) not in offchip:
+                if base_obj(c.pre_obj) not in ignore:
                     onchip_input = True
                     break
             for c in cluster.conns_out:
-                if base_obj(c.post_obj) not in offchip:
+                if base_obj(c.post_obj) not in ignore:
                     onchip_output = True
                     break
             has_input = len(cluster.conns_in) > 0
