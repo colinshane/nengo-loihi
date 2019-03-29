@@ -178,19 +178,14 @@ def test_split_pre_from_host():
     for obj in host_precomputable:
         assert not splitter_directive.on_chip(obj)
         assert splitter_directive.is_precomputable(obj)
-    assert (splitter_directive.host_precomputable_objects
-            == host_precomputable - {pre_5})  # minus probe
 
     host_nonprecomputable = {post1, post2, post3}
     for obj in host_nonprecomputable:
         assert not splitter_directive.on_chip(obj)
         assert not splitter_directive.is_precomputable(obj)
-    assert (splitter_directive.host_nonprecomputable_objects
-            == host_nonprecomputable - {post3})  # minus probe
 
     assert splitter_directive.on_chip(onchip)
     assert not splitter_directive.is_precomputable(onchip)
-    assert splitter_directive.chip_objects == {onchip}
 
     with pytest.raises(IndexError, match="not a part of the network"):
         splitter_directive.is_precomputable(
@@ -207,15 +202,6 @@ def test_split_precompute_loop_error():
 
     with pytest.raises(BuildError, match="Cannot precompute"):
         SplitterDirective(net, precompute=True)
-
-
-def test_already_moved_to_host():
-    with nengo.Network() as net:
-        u = nengo.Node(0)
-
-    splitter_directive = SplitterDirective(net)
-    with pytest.raises(ValueError, match="must be on chip"):
-        splitter_directive.move_to_host(u)
 
 
 def test_chip_learning_errors():

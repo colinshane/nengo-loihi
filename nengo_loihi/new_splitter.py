@@ -139,26 +139,3 @@ class SplitterDirective:
             obj = base_obj(obj.target)
         return (not self.on_chip(obj)
                 and obj in self._host_precomputable_objects)
-
-    def move_to_host(self, obj):
-        # TODO: this could potentially change what is precomputable
-        if not self.on_chip(obj):
-            raise ValueError("Object (%r) must be on chip to be moved to host"
-                             % (obj,))
-        self._chip_objects.remove(obj)
-
-    @property
-    def chip_objects(self):
-        """Nodes and Ensembles on chip."""
-        return self._chip_objects
-
-    @property
-    def host_precomputable_objects(self):
-        """Precomputable Nodes and Ensembles on host."""
-        return self._host_precomputable_objects
-
-    @property
-    def host_nonprecomputable_objects(self):
-        """Non-precomputable Nodes and Ensembles on host."""
-        return (self._seen_objects - self._chip_objects
-                - self._host_precomputable_objects)

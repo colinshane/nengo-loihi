@@ -338,7 +338,7 @@ class Simulator:
             self.model.seeded[conn] = False
             self.model.build(conn)
 
-        if len(self.model.splitter_directive.host_precomputable_objects):
+        if len(self.model.host_pre.params):
             assert precompute
             self.sims["host_pre"] = nengo.Simulator(
                 network=None,
@@ -350,7 +350,7 @@ class Simulator:
             warnings.warn("No precomputable objects. Setting "
                           "precompute=True has no effect.")
 
-        if len(self.model.splitter_directive.host_nonprecomputable_objects):
+        if len(self.model.host.params):
             self.sims["host"] = nengo.Simulator(
                 network=None,
                 dt=self.dt,
