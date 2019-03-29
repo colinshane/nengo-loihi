@@ -319,10 +319,6 @@ class Simulator:
         # this has no effect for nengo<=2.8.0
         seed_network(network, seeds=self.model.seeds,
                      seeded=self.model.seeded)
-        self.model.host.seeds.update(self.model.seeds)
-        self.model.host.seeded.update(self.model.seeded)
-        self.model.host_pre.seeds.update(self.model.seeds)
-        self.model.host_pre.seeded.update(self.model.seeded)
 
         # determine how to split the host into one, two or three models
         self.model.splitter_directive = SplitterDirective(

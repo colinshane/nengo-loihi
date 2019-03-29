@@ -73,6 +73,7 @@ def build_connection(model, conn):
         assert is_pre_chip == is_post_chip
         nengo_model = model.delegate(_base_obj(conn.pre))
         assert nengo_model is model.delegate(_base_obj(conn.post))
+        _inherit_seed(nengo_model, conn, model, conn)
         nengo_model.build(conn)
 
 

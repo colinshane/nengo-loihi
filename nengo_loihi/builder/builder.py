@@ -194,6 +194,13 @@ class Model:
 
         # Note: any callbacks for host_pre or host will not be invoked here
         model = self.delegate(obj)
+        if model is not self:
+            # done for compatibility with nengo<=2.8.0
+            # otherwise we could just copy over the initial
+            # seeding to all other models
+            model.seeds[obj] = self.seeds[obj]
+            model.seeded[obj] = self.seeded[obj]
+
         built = model.builder.build(model, obj, *args, **kwargs)
         if self.build_callback is not None:
             self.build_callback(obj)
