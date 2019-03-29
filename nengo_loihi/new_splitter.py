@@ -1,7 +1,6 @@
 from collections import defaultdict
 
 from nengo import Direct, Ensemble, Node, Probe
-from nengo.ensemble import Neurons
 from nengo.exceptions import BuildError
 from nengo.connection import LearningRule
 
