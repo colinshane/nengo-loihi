@@ -44,9 +44,9 @@ def _base_obj(obj):
     return obj
 
 
-def _inherit_seed(model, dest, src):
-    model.seeded[dest] = model.seeded[src]
-    model.seeds[dest] = model.seeds[src]
+def _inherit_seed(dest_model, dest_obj, src_model, src_obj):
+    dest_model.seeded[dest_obj] = src_model.seeded[src_obj]
+    dest_model.seeds[dest_obj] = src_model.seeds[src_obj]
 
 
 @Builder.register(Connection)
@@ -90,7 +90,7 @@ def build_host_neurons_to_chip(model, conn):
         label=None if conn.label is None else "%s_neurons" % conn.label,
         add_to_container=False,
     )
-    _inherit_seed(model, receive, conn)
+    _inherit_seed(model, receive, model, conn)
     model.builder.build(model, receive)
 
     receive2post = Connection(
@@ -101,7 +101,7 @@ def build_host_neurons_to_chip(model, conn):
         label=None if conn.label is None else "%s_chip" % conn.label,
         add_to_container=False,
     )
-    _inherit_seed(model, receive2post, conn)
+    _inherit_seed(model, receive2post, model, conn)
     build_chip_connection(model, receive2post)
 
     logger.debug("Creating HostSendNode for %s", conn)
@@ -120,7 +120,7 @@ def build_host_neurons_to_chip(model, conn):
         add_to_container=False,
     )
     model.host2chip_senders[send] = receive
-    _inherit_seed(nengo_model, pre2send, conn)
+    _inherit_seed(nengo_model, pre2send, model, conn)
     nengo_model.build(pre2send)
 
 
@@ -145,7 +145,7 @@ def build_host_to_chip(model, conn):
         label=None if conn.label is None else "%s_chip" % conn.label,
         add_to_container=False,
     )
-    _inherit_seed(model, receive2post, conn)
+    _inherit_seed(model, receive2post, model, conn)
     build_chip_connection(model, receive2post)
 
     logger.debug("Creating DecodeNeuron ensemble for %s", conn)
@@ -154,7 +154,7 @@ def build_host_to_chip(model, conn):
             "DecodeNeurons must be specified for host->chip connection.")
     ens = model.node_neurons.get_ensemble(dim)
     ens.label = None if conn.label is None else "%s_ens" % conn.label
-    _inherit_seed(nengo_model, ens, conn)
+    _inherit_seed(nengo_model, ens, model, conn)
     nengo_model.build(ens)
 
     if nengo_transforms is not None and isinstance(
@@ -188,7 +188,7 @@ def build_host_to_chip(model, conn):
         label=None if conn.label is None else "%s_enc" % conn.label,
         add_to_container=False,
     )
-    _inherit_seed(nengo_model, pre2ens, conn)
+    _inherit_seed(nengo_model, pre2ens, model, conn)
     nengo_model.build(pre2ens)
 
     logger.debug("Creating HostSendNode for %s", conn)
@@ -206,7 +206,7 @@ def build_host_to_chip(model, conn):
         label=None if conn.label is None else "%s_host" % conn.label,
         add_to_container=False,
     )
-    _inherit_seed(nengo_model, ensneurons2send, conn)
+    _inherit_seed(nengo_model, ensneurons2send, model, conn)
     model.host2chip_senders[send] = receive
     nengo_model.build(ensneurons2send)
 
@@ -231,7 +231,7 @@ def build_chip_to_host(model, conn):
         label=None if conn.label is None else "%s_host" % conn.label,
         add_to_container=False,
     )
-    _inherit_seed(nengo_model, receive2post, conn)
+    _inherit_seed(nengo_model, receive2post, model, conn)
     nengo_model.build(receive2post)
 
     logger.debug("Creating Probe for %s", conn)
@@ -250,7 +250,7 @@ def build_chip_to_host(model, conn):
         label=None if conn.label is None else "%s_probe" % conn.label,
     )
     model.chip2host_receivers[probe] = receive
-    _inherit_seed(model, probe, conn)
+    _inherit_seed(model, probe, model, conn)
     model.builder.build(model, probe)
 
     if conn.learning_rule_type is not None:
@@ -287,7 +287,7 @@ def build_host_to_learning_rule(model, conn):
     )
     pes_target = model.needs_sender[conn.post_obj]
     model.host2chip_senders[send] = pes_target
-    _inherit_seed(nengo_model, pre2send, conn)
+    _inherit_seed(nengo_model, pre2send, model, conn)
     nengo_model.build(pre2send)
 
 

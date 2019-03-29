@@ -316,6 +316,7 @@ class Simulator:
         config.add_params(network)
 
         # ensure seeds are identical to nengo
+        # this has no effect for nengo<=2.8.0
         seed_network(network, seeds=self.model.seeds,
                      seeded=self.model.seeded)
         self.model.host.seeds.update(self.model.seeds)
