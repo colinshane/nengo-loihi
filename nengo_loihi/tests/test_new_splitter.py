@@ -54,8 +54,8 @@ def test_place_ensembles():
     assert not splitter_directive.on_chip(direct)
     assert splitter_directive.on_chip(onchip)
     assert splitter_directive.on_chip(pre)
-    assert splitter_directive.on_chip(post)
-    assert splitter_directive.on_chip(error)
+    assert not splitter_directive.on_chip(post)
+    assert not splitter_directive.on_chip(error)
 
     for obj in net.all_ensembles + net.all_nodes:
         assert not splitter_directive.is_precomputable(obj)
@@ -110,9 +110,6 @@ def test_split_host_to_learning_rule():
             err_offchip, neurons_conn.learning_rule)
 
     splitter_directive = SplitterDirective(net)
-    # builder will move these to host
-    splitter_directive.move_to_host(err_onchip)
-    splitter_directive.move_to_host(post)
 
     assert splitter_directive.on_chip(pre)
     assert not splitter_directive.on_chip(post)
