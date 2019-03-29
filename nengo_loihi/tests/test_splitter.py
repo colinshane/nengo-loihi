@@ -4,7 +4,7 @@ from nengo.exceptions import BuildError
 import numpy as np
 
 from nengo_loihi.config import add_params
-from nengo_loihi.new_splitter import SplitterDirective
+from nengo_loihi.splitter import SplitterDirective
 
 
 def test_place_nodes():

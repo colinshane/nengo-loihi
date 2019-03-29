@@ -19,7 +19,7 @@ from nengo_loihi.compat import seed_network
 from nengo_loihi.discretize import discretize_model
 from nengo_loihi.emulator import EmulatorInterface
 from nengo_loihi.hardware import HardwareInterface, HAS_NXSDK
-from nengo_loihi.new_splitter import SplitterDirective
+from nengo_loihi.splitter import SplitterDirective
 import nengo_loihi.config as config
 
 logger = logging.getLogger(__name__)
