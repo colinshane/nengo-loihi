@@ -216,3 +216,31 @@ def test_already_moved_to_host():
     splitter_directive = SplitterDirective(net)
     with pytest.raises(ValueError, match="must be on chip"):
         splitter_directive.move_to_host(u)
+
+
+def test_chip_learning_errors():
+    with nengo.Network() as net:
+        add_params(net)
+
+        a = nengo.Ensemble(100, 1)
+        b = nengo.Ensemble(100, 1)
+        net.config[b].on_chip = True
+
+        nengo.Connection(a, b, learning_rule_type=nengo.PES())
+
+    with pytest.raises(BuildError, match="Post ensemble"):
+        SplitterDirective(net)
+
+    with nengo.Network() as net:
+        add_params(net)
+
+        a = nengo.Ensemble(100, 1)
+        b = nengo.Ensemble(100, 1)
+        error = nengo.Ensemble(100, 1)
+        net.config[error].on_chip = True
+
+        conn = nengo.Connection(a, b, learning_rule_type=nengo.PES())
+        nengo.Connection(error, conn.learning_rule)
+
+    with pytest.raises(BuildError, match="Pre ensemble"):
+        SplitterDirective(net)
