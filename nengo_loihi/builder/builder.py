@@ -5,7 +5,7 @@ from nengo import Network, Node, Ensemble, Connection, Probe
 from nengo.builder import Model as NengoModel
 from nengo.builder.builder import Builder as NengoBuilder
 from nengo.builder.network import build_network
-from nengo.cache import NoDecoderCache, get_default_decoder_cache
+from nengo.cache import NoDecoderCache
 
 from nengo_loihi.block import LoihiBlock
 from nengo_loihi.builder.inputs import LoihiInput
@@ -92,10 +92,12 @@ class Model:
 
         # Host models filled in by the build process
         def create_host_model(label, dt):
+            # We don't use a decoder cache because it requires a context
+            # manager that differs depending on which sub-model is being built
             return NengoModel(
                 dt=float(dt),
                 label="%s, dt=%f" % (label, dt),
-                decoder_cache=get_default_decoder_cache())
+                decoder_cache=NoDecoderCache())
 
         # TODO: these models may not look/behave exactly the same as
         # standard nengo models, because they don't have a toplevel network
