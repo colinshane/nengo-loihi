@@ -181,15 +181,15 @@ def test_split_pre_from_host():
     for obj in host_precomputable:
         assert not splitter_directive.on_chip(obj)
         assert splitter_directive.is_precomputable(obj)
-    assert (splitter_directive.host_precomputable_objects ==
-            host_precomputable - {pre_5})  # minus probe
+    assert (splitter_directive.host_precomputable_objects
+            == host_precomputable - {pre_5})  # minus probe
 
     host_nonprecomputable = {post1, post2, post3}
     for obj in host_nonprecomputable:
         assert not splitter_directive.on_chip(obj)
         assert not splitter_directive.is_precomputable(obj)
-    assert (splitter_directive.host_nonprecomputable_objects ==
-            host_nonprecomputable - {post3})  # minus probe
+    assert (splitter_directive.host_nonprecomputable_objects
+            == host_nonprecomputable - {post3})  # minus probe
 
     assert splitter_directive.on_chip(onchip)
     assert not splitter_directive.is_precomputable(onchip)

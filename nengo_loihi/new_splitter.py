@@ -137,5 +137,5 @@ class SplitterDirective:
     @property
     def host_nonprecomputable_objects(self):
         """Non-precomputable Nodes and Ensembles on host."""
-        return (self._seen_objects - self._chip_objects -
-                self._host_precomputable_objects)
+        return (self._seen_objects - self._chip_objects
+                - self._host_precomputable_objects)
