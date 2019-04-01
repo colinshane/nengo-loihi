@@ -143,9 +143,6 @@ def build_host_to_chip(model, conn):
     build_chip_connection(model, receive2post)
 
     logger.debug("Creating DecodeNeuron ensemble for %s", conn)
-    if model.node_neurons is None:
-        raise BuildError(
-            "DecodeNeurons must be specified for host->chip connection.")
     ens = model.node_neurons.get_ensemble(dim)
     ens.label = None if conn.label is None else "%s_ens" % conn.label
     _inherit_seed(nengo_model, ens, model, conn)
