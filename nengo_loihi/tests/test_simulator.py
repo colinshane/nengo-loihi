@@ -729,3 +729,56 @@ def test_input_node_precompute(allclose, Simulator, plt):
     plt.legend(loc='best')
 
     assert allclose(x['sim'], x['loihi'], atol=0.1, rtol=0.01)
+
+
+@pytest.mark.parametrize("remove_passthrough", [True, False])
+def test_simulator_passthrough(remove_passthrough, Simulator):
+    with nengo.Network() as model:
+        host_input = nengo.Node(0)
+        host_a = nengo.Node(size_in=1)
+        host_b = nengo.Node(size_in=1)
+
+        chip_x = nengo.Ensemble(10, 1)
+        remove_c = nengo.Node(size_in=1)
+        chip_y = nengo.Ensemble(10, 1)
+
+        host_d = nengo.Node(size_in=1)
+
+        conn_input_a = nengo.Connection(host_input, host_a)
+        conn_a_b = nengo.Connection(host_a, host_b)
+        conn_b_x = nengo.Connection(host_b, chip_x)
+        conn_x_c = nengo.Connection(chip_x, remove_c)
+        conn_c_y = nengo.Connection(remove_c, chip_y)
+        conn_y_d = nengo.Connection(chip_y, host_d)
+
+        probe_y = nengo.Probe(chip_y)
+        probe_d = nengo.Probe(host_d)
+
+    with Simulator(model, remove_passthrough=remove_passthrough) as sim:
+        pass
+
+    assert host_input in sim.model.host.params
+    assert probe_d in sim.model.host.params
+
+    assert chip_x in sim.model.params
+    assert chip_y in sim.model.params
+    assert probe_y in sim.model.params
+
+    # Passthrough nodes are not removed on the host
+    assert host_a in sim.model.host.params
+    assert host_b in sim.model.host.params
+    assert host_d in sim.model.host.params
+    assert conn_input_a in sim.model.host.params
+    assert conn_a_b in sim.model.host.params
+
+    if remove_passthrough:
+        assert remove_c not in sim.model.host.params
+    else:
+        assert remove_c in sim.model.host.params
+
+    # These connections currently aren't built in either case
+    for model in (sim.model, sim.model.host):
+        assert conn_b_x not in model.params
+        assert conn_x_c not in model.params
+        assert conn_c_y not in model.params
+        assert conn_y_d not in model.params
