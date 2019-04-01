@@ -277,3 +277,22 @@ def test_split_remove_passthrough(remove_passthrough):
 
     else:
         assert pd == (set(), set(), set())
+
+
+def test_sliced_passthrough_bug():
+    with nengo.Network() as model:
+        add_params(model)
+
+        a = nengo.Ensemble(1, 1, label="a")
+        passthrough = nengo.Node(size_in=1, label="passthrough")
+
+        nengo.Connection(a, passthrough)
+        p = nengo.Probe(passthrough[0])
+
+    splitter_directive = SplitterDirective(model, remove_passthrough=True)
+
+    assert splitter_directive.passthrough_directive == (set(), set(), set())
+
+    assert splitter_directive.on_chip(a)
+    assert not splitter_directive.on_chip(passthrough)
+    assert not splitter_directive.on_chip(p)
