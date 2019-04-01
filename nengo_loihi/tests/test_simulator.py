@@ -602,8 +602,6 @@ def test_population_input(request, allclose):
     assert allclose(z[[1, 3, 5]], weights[0], atol=4e-2, rtol=0)
 
 
-@pytest.mark.skipif(pytest.config.getoption("--target") != "loihi",
-                    reason="Loihi only test")
 def test_precompute(allclose, Simulator, seed, plt):
     simtime = 0.2
 
@@ -639,9 +637,46 @@ def test_precompute(allclose, Simulator, seed, plt):
     plt.plot(sim2.trange(), sim2.data[p_out])
     plt.title('precompute=True')
 
+    # check that each is using the right placement
+    assert stim in sim1.model.host.params
+    assert stim not in sim1.model.host_pre.params
+    assert stim not in sim2.model.host.params
+    assert stim in sim2.model.host_pre.params
+
+    assert p_stim not in sim1.model.params
+    assert p_stim in sim1.model.host.params
+    assert p_stim not in sim1.model.host_pre.params
+
+    assert p_stim not in sim2.model.params
+    assert p_stim not in sim2.model.host.params
+    assert p_stim in sim2.model.host_pre.params
+
+    for sim in (sim1, sim2):
+        assert a in sim.model.params
+        assert a not in sim.model.host.params
+        assert a not in sim.model.host_pre.params
+
+        assert output not in sim.model.params
+        assert output in sim.model.host.params
+        assert output not in sim.model.host_pre.params
+
+        assert p_a in sim.model.params
+        assert p_a not in sim.model.host.params
+        assert p_a not in sim.model.host_pre.params
+
+        assert p_out not in sim.model.params
+        assert p_out in sim.model.host.params
+        assert p_out not in sim.model.host_pre.params
+
     assert np.array_equal(sim1.data[p_stim], sim2.data[p_stim])
-    assert allclose(sim1.data[p_a], sim2.data[p_a], atol=0.2)
-    assert allclose(sim1.data[p_out], sim2.data[p_out], atol=0.2)
+    assert sim1.target == sim2.target
+    if sim1.target != "loihi":
+        # precompute should not make a difference for the emulator outputs
+        assert allclose(sim1.data[p_a], sim2.data[p_a])
+        assert allclose(sim1.data[p_out], sim2.data[p_out])
+    else:
+        assert allclose(sim1.data[p_a], sim2.data[p_a], atol=0.2)
+        assert allclose(sim1.data[p_out], sim2.data[p_out], atol=0.2)
 
 
 @pytest.mark.skipif(pytest.config.getoption("--target") != "loihi",
