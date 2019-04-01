@@ -828,3 +828,11 @@ def test_slicing_bugs(Simulator, seed):
     assert a not in sim.model.host.params
     assert b not in sim.model.params
     assert b in sim.model.host.params
+
+
+def test_network_unchanged(Simulator):
+    with nengo.Network() as model:
+        nengo.Ensemble(100, 1)
+        with Simulator(model):
+            pass
+        assert model.all_networks == []
