@@ -230,3 +230,50 @@ def test_chip_learning_errors():
 
     with pytest.raises(BuildError, match="Pre ensemble"):
         SplitterDirective(net)
+
+
+@pytest.mark.parametrize("remove_passthrough", [True, False])
+def test_split_remove_passthrough(remove_passthrough):
+    with nengo.Network() as net:
+        add_params(net)
+
+        keep1 = nengo.Node(0, label="keep1")
+        keep2 = nengo.Node(lambda t, x: x, size_in=1, label="keep2")
+        keep3 = nengo.Node(size_in=1, label="keep3")
+
+        chip1 = nengo.Ensemble(10, 1, label="chip1")
+        discard1 = nengo.Node(size_in=1, label="discard1")
+        chip2 = nengo.Ensemble(10, 1, label="chip2")
+        discard2 = nengo.Node(size_in=1, label="discard2")
+        chip3 = nengo.Ensemble(10, 1, label="chip3")
+
+        keep4 = nengo.Node(size_in=1, label="keep4")
+        probe = nengo.Probe(keep4)
+
+        nengo.Connection(keep1, keep2)
+        nengo.Connection(keep2, keep3)
+        nengo.Connection(keep3, chip1)
+        conn1 = nengo.Connection(chip1, discard1)
+        conn2 = nengo.Connection(discard1, chip2)
+        conn3 = nengo.Connection(chip2, discard2)
+        conn4 = nengo.Connection(discard2, chip3)
+        nengo.Connection(chip3, keep4)
+
+    splitter_directive = SplitterDirective(
+        net, remove_passthrough=remove_passthrough)
+    assert not splitter_directive.on_chip(probe)
+
+    pd = splitter_directive.passthrough_directive
+
+    if remove_passthrough:
+        assert pd.removed_passthroughs == {discard1, discard2}
+        assert pd.removed_connections == {conn1, conn2, conn3, conn4}
+
+        conns = list(pd.added_connections)
+        assert len(conns) == 2
+
+        prepost = {(conn.pre, conn.post) for conn in conns}
+        assert prepost == {(chip1, chip2), (chip2, chip3)}
+
+    else:
+        assert pd == (set(), set(), set())
