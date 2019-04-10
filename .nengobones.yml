@@ -6,6 +6,8 @@ ci_scripts:
     conda_install:
       - cython
     pip_install:
+      - pip
+      - --upgrade  # Hack to `pip --upgrade`
       - git+https://github.com/abr/abr_control.git
       - $NENGO_VERSION
   - template: test
@@ -47,5 +49,6 @@ travis_yml:
     - script: docs
       env:
         NENGO_VERSION: git+https://github.com/nengo/nengo.git#egg=nengo
+        PIP_UPGRADE: false
 
 codecov_yml: {}
